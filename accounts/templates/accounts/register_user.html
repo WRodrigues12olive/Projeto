@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cadastro - LogisPro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <style>
+        body { background-color: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .text-primary-custom { color: #1d4ed8; }
+        .btn-primary-custom { background-color: #1d4ed8; border: none; transition: 0.3s; }
+        .btn-primary-custom:hover { background-color: #1e3a8a; transform: translateY(-2px); }
+        .input-custom { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 0.6rem 1rem; border-radius: 0.5rem; transition: all 0.2s; }
+        .input-custom:focus { background-color: #ffffff; border-color: #3b82f6; box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25); outline: none; }
+        .card-custom { border: none; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.05); overflow: hidden; }
+    </style>
+</head>
+<body class="d-flex align-items-center min-vh-100 py-5">
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-8 col-lg-6 col-xl-5">
+                
+                <div class="text-center mb-4">
+                    <i class="bi bi-truck fs-1 text-primary-custom"></i>
+                    <h2 class="fw-bold mt-2 mb-0" style="color: #0f172a;">Logis<span class="text-primary-custom">Pro</span></h2>
+                    <p class="text-secondary small">A melhor plataforma de gestão logística.</p>
+                </div>
+
+                <div class="card card-custom bg-white">
+                    <div class="card-body p-4 p-md-5">
+                        <h4 class="fw-bold mb-1 text-center">Criar Nova Conta</h4>
+                        <p class="text-muted small text-center mb-4">Selecione seu perfil e preencha os dados.</p>
+
+                        {% if messages %}
+                            {% for message in messages %}
+                                <div class="alert alert-danger py-2 small fw-bold text-center border-0 rounded-3">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ message }}
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+
+                        <form method="POST" id="registerForm">
+                            {% csrf_token %}
+                            
+                            <div class="mb-4">
+                                <label class="form-label small fw-bold text-secondary mb-1">Qual o seu perfil? *</label>
+                                <select name="user_type" id="userTypeSelect" class="form-select input-custom fw-bold text-primary-custom" onchange="toggleUserType()" required>
+                                    <option value="COMPANY" selected>Empresa / Cliente (Quero enviar entregas)</option>
+                                    <option value="MOTOBOY">Motoboy / Entregador (Quero fazer entregas)</option>
+                                    <option value="DISPATCHER">Despachante (Gestão de Frota)</option>
+                                    <option value="ADMIN">Administrador</option>
+                                </select>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-7">
+                                    <label id="nameLabel" class="form-label small fw-bold text-secondary mb-1">Nome da Empresa *</label>
+                                    <input type="text" name="name" id="nameInput" class="form-control input-custom" placeholder="Razão Social ou Fantasia" required>
+                                </div>
+                                <div class="col-md-5">
+                                    <label id="docLabel" class="form-label small fw-bold text-secondary mb-1">CNPJ *</label>
+                                    <input type="text" name="document" id="docInput" class="form-control input-custom" placeholder="00.000.000/0000-00" maxlength="18" required oninput="applySmartMask(this)">
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold text-secondary mb-1">Usuário de Login *</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-person"></i></span>
+                                        <input type="text" name="username" class="form-control input-custom border-start-0" placeholder="Ex: joao.silva" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold text-secondary mb-1">Telefone / WhatsApp *</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-telephone"></i></span>
+                                        <input type="text" name="phone" class="form-control input-custom border-start-0" placeholder="(00) 00000-0000" maxlength="15" required oninput="this.value = formatPhone(this.value)">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-secondary mb-1">E-mail *</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-envelope"></i></span>
+                                    <input type="email" name="email" class="form-control input-custom border-start-0" placeholder="contato@email.com" required>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="form-label small fw-bold text-secondary mb-1">Senha de Acesso *</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-lock"></i></span>
+                                    <input type="password" name="password" class="form-control input-custom border-start-0" placeholder="Mínimo 6 caracteres" required minlength="6">
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary-custom w-100 py-3 fw-bold rounded-3 text-white">
+                                Criar Conta e Acessar <i class="bi bi-arrow-right ms-1"></i>
+                            </button>
+                            
+                            <div class="text-center mt-4">
+                                <p class="text-muted small">Já possui uma conta? <a href="#" class="text-primary-custom fw-bold text-decoration-none">Faça login aqui</a></p>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Função para alterar labels e placeholders baseado no tipo selecionado
+        function toggleUserType() {
+            const type = document.getElementById('userTypeSelect').value;
+            const nameLabel = document.getElementById('nameLabel');
+            const nameInput = document.getElementById('nameInput');
+            const docLabel = document.getElementById('docLabel');
+            const docInput = document.getElementById('docInput');
+
+            if (type === 'COMPANY') {
+                nameLabel.innerText = "Nome da Empresa *";
+                nameInput.placeholder = "Razão Social ou Fantasia";
+                docLabel.innerText = "CNPJ *";
+                docInput.placeholder = "00.000.000/0000-00";
+            } else {
+                nameLabel.innerText = "Nome Completo *";
+                nameInput.placeholder = "Seu nome completo";
+                docLabel.innerText = "CPF *";
+                docInput.placeholder = "000.000.000-00";
+            }
+            
+            // Limpa o documento para a máscara não bugar na troca
+            docInput.value = "";
+        }
+
+        // Máscara Inteligente que aceita CPF ou CNPJ dependendo de quantos números você digita
+        function applySmartMask(input) {
+            let value = input.value.replace(/\D/g, ''); // Remove tudo que não for número
+            
+            if (document.getElementById('userTypeSelect').value === 'COMPANY') {
+                // Máscara de CNPJ
+                if (value.length > 14) value = value.slice(0, 14);
+                value = value.replace(/^(\d{2})(\d)/, '$1.$2');
+                value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+                value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
+                value = value.replace(/(\d{4})(\d)/, '$1-$2');
+            } else {
+                // Máscara de CPF
+                if (value.length > 11) value = value.slice(0, 11);
+                value = value.replace(/(\d{3})(\d)/, '$1.$2');
+                value = value.replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3');
+                value = value.replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2');
+            }
+            
+            input.value = value;
+        }
+
+        // Máscara de Telefone
+        const formatPhone = (value) => {
+            return value
+                .replace(/\D/g, '')
+                .replace(/(\d{2})(\d)/, '($1) $2')
+                .replace(/(\d{5})(\d)/, '$1-$2')
+                .slice(0, 15);
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,572 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    .bg-slate-900 { background-color: #0f172a; }
+    .text-slate-400 { color: #94a3b8; }
+    .bg-slate-50 { background-color: #f8fafc; }
+    .rounded-xl { border-radius: 0.75rem; }
+    .card-header-custom { background-color: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 0.75rem; }
+    .icon-box { background-color: #dbeafe; padding: 0.5rem; border-radius: 0.5rem; color: #1d4ed8; }
+    .input-custom { background-color: #f8fafc; border: 1px solid #cbd5e1; transition: all 0.2s; }
+    .input-custom:focus { background-color: #ffffff; border-color: #3b82f6; box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25); outline: none; }
+    .btn-remove { position: absolute; top: 1rem; right: 1rem; color: #94a3b8; background: none; border: none; transition: 0.2s; }
+    .btn-remove:hover { color: #ef4444; }
+</style>
+
+<div class="min-vh-100 bg-light pb-5" style="font-family: 'Segoe UI', system-ui, sans-serif;">
+    
+    <header class="bg-slate-900 text-white pt-5 pb-5 px-4 mb-4" style="padding-bottom: 5rem !important;">
+        <div class="container d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-truck fs-2 text-info"></i>
+                    <h2 class="mb-0 fw-bold">Nova Ordem de Serviço</h2>
+                </div>
+                <p class="text-slate-400 fs-5 mb-0">Preencha as informações abaixo para gerar a OS de entrega.</p>
+            </div>
+        </div>
+    </header>
+
+    <main class="container" style="margin-top: -4rem;">
+        <form id="osForm">
+            <div class="card rounded-xl shadow-sm border-0 mb-4 overflow-hidden">
+                <div class="card-header-custom">
+                    <div class="icon-box"><i class="bi bi-building"></i></div>
+                    <h5 class="mb-0 fw-bold text-dark">Informações Gerais</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label small fw-bold text-secondary">Empresa Solicitante *</label>
+                            <input type="text" id="req_company" class="form-control input-custom" placeholder="Nome da empresa" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-secondary">CNPJ *</label>
+                            <input type="text" id="req_cnpj" class="form-control input-custom" placeholder="00.000.000/0000-00" maxlength="18" required oninput="this.value = formatCNPJ(this.value)">
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-secondary">Nome do Responsável *</label>
+                            <input type="text" id="req_name" class="form-control input-custom" placeholder="Pessoa de contato" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-secondary">Telefone *</label>
+                            <input type="text" id="req_phone" class="form-control input-custom" placeholder="(00) 00000-0000" maxlength="15" required oninput="this.value = formatPhone(this.value)">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-secondary">E-mail *</label>
+                            <input type="email" id="req_email" class="form-control input-custom" placeholder="contato@empresa.com" required>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary">Tipo de Entrega *</label>
+                            <select id="delivery_type" class="form-select input-custom" required>
+                                <option value="Normal">Normal</option>
+                                <option value="Urgente">Urgente</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary">Veículo *</label>
+                            <select id="veh_type" class="form-select input-custom">
+                                <option value="MOTO">Moto</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card rounded-xl shadow-sm border-0 mb-4 overflow-hidden">
+                <div class="card-header-custom">
+                    <div class="icon-box"><i class="bi bi-box-arrow-up"></i></div>
+                    <h5 class="mb-0 fw-bold text-dark">Local de Coleta (Origem)</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-12"><input type="text" id="orig_name" class="form-control input-custom" placeholder="Nome do Local de Retirada *" required></div>
+                        <div class="col-md-3"><input type="text" id="orig_zip" class="form-control input-custom" placeholder="CEP" maxlength="9" oninput="this.value = formatCEP(this.value)"></div>
+                        <div class="col-md-7"><input type="text" id="orig_street" class="form-control input-custom" placeholder="Rua *" required></div>
+                        <div class="col-md-2"><input type="text" id="orig_number" class="form-control input-custom" placeholder="Número *" required></div>
+                        <div class="col-md-5"><input type="text" id="orig_district" class="form-control input-custom" placeholder="Bairro *" required></div>
+                        <div class="col-md-5"><input type="text" id="orig_city" class="form-control input-custom" placeholder="Cidade *" required></div>
+                        <div class="col-md-2"><input type="text" id="orig_state" class="form-control input-custom" placeholder="UF *" maxlength="2" required></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card rounded-xl shadow-sm border-0 mb-4 overflow-hidden">
+                <div class="card-header-custom">
+                    <div class="icon-box"><i class="bi bi-box-seam"></i></div>
+                    <h5 class="mb-0 fw-bold text-dark">Itens da Entrega</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div id="items-container" class="d-flex flex-column gap-3 mb-3"></div>
+                    <button type="button" onclick="addItem()" class="btn btn-outline-primary btn-sm fw-bold px-3 py-2 rounded-3 border-2">
+                        <i class="bi bi-plus-lg"></i> Adicionar Outro Item
+                    </button>
+                </div>
+            </div>
+
+            <div class="card rounded-xl shadow-sm border-0 mb-4 overflow-hidden">
+                <div class="card-header-custom">
+                    <div class="icon-box"><i class="bi bi-geo-alt"></i></div>
+                    <h5 class="mb-0 fw-bold text-dark">Destinos de Entrega & Distribuição</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div id="locations-container" class="d-flex flex-column gap-4 mb-3"></div>
+                    <button type="button" onclick="addLocation()" class="btn btn-outline-primary btn-sm fw-bold px-3 py-2 rounded-3 border-2">
+                        <i class="bi bi-plus-lg"></i> Adicionar Novo Destino
+                    </button>
+                </div>
+            </div>
+
+            <div class="card rounded-xl shadow-sm border-0 mb-4 overflow-hidden">
+                <div class="card-header-custom">
+                    <div class="icon-box"><i class="bi bi-card-text"></i></div>
+                    <h5 class="mb-0 fw-bold text-dark">Observações Gerais</h5>
+                </div>
+                <div class="card-body p-4">
+                    <label class="form-label small fw-bold text-secondary">Instruções Especiais / Observações Internas</label>
+                    <textarea id="general_notes" class="form-control input-custom" rows="4" placeholder="Adicione informações relevantes para o motorista, equipe de logística ou faturamento..."></textarea>
+                </div>
+            </div>
+
+            {% csrf_token %}
+            <div class="d-flex flex-column flex-sm-row justify-content-end gap-3 mt-4 mb-5 border-top pt-4">
+                <a href="{% url 'company_dashboard' %}" class="btn btn-light border px-4 py-2 rounded-3 fw-bold text-secondary">Cancelar</a>
+                <button type="button" id="btnSubmit" class="btn btn-primary px-5 py-2 rounded-3 fw-bold shadow-sm" onclick="submitForm()">
+                    <i class="bi bi-send"></i> Gerar OS Oficial
+                </button>
+            </div>
+        </form>
+    </main>
+</div>
+
+<template id="item-template">
+    <div class="item-card position-relative bg-slate-50 border rounded-3 p-4 transition-all" data-id="">
+        <button type="button" class="btn-remove" onclick="removeItem(this)"><i class="bi bi-trash fs-5"></i></button>
+        <div class="row g-3 mt-1">
+            <div class="col-md-5">
+                <label class="form-label small fw-bold text-secondary">Descrição do Item *</label>
+                <input type="text" class="form-control input-custom item-desc" placeholder="Ex: Lote de Documentos X" required oninput="syncItemsToLocations()">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-secondary">Qtd *</label>
+                <input type="number" class="form-control input-custom item-qty" min="1" value="1" required oninput="syncItemsToLocations()">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary">Tipo *</label>
+                <select class="form-select input-custom item-type" required>
+                    <option value="Caixa">Caixa</option>
+                    <option value="Documento">Documento</option>
+                    <option value="Equipamento">Equipamento</option>
+                    <option value="Material Frágil">Material frágil</option>
+                    <option value="Outro">Outro</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-secondary">Peso (kg)</label>
+                <input type="number" step="0.1" class="form-control input-custom item-weight" placeholder="Ex: 2.5">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-secondary">Dimensões (AxLxP)</label>
+                <input type="text" class="form-control input-custom item-dim" placeholder="Ex: 10x20x15 cm">
+            </div>
+            <div class="col-md-8">
+                <label class="form-label small fw-bold text-secondary">Observação do Item</label>
+                <input type="text" class="form-control input-custom item-notes" placeholder="Ex: Cuidado, frágil">
+            </div>
+        </div>
+    </div>
+</template>
+
+<template id="location-template">
+    <div class="location-card position-relative bg-white border border-primary border-opacity-25 shadow-sm rounded-3 p-4" data-id="">
+        <button type="button" class="btn-remove" onclick="removeLocation(this)"><i class="bi bi-trash fs-5"></i></button>
+        <h6 class="fw-bold text-primary mb-3"><i class="bi bi-flag-fill"></i> Dados do Destinatário</h6>
+        
+        <div class="row g-2 mb-3">
+            <div class="col-md-6"><input type="text" class="form-control input-custom loc-name" placeholder="Destinatário (Nome/Empresa) *" required></div>
+            <div class="col-md-6"><input type="text" class="form-control input-custom loc-phone" placeholder="Telefone no Local *" maxlength="15" required oninput="this.value = formatPhone(this.value)"></div>
+            <div class="col-md-3"><input type="text" class="form-control input-custom loc-cep" placeholder="CEP *" maxlength="9" required oninput="this.value = formatCEP(this.value)"></div>
+            <div class="col-md-7"><input type="text" class="form-control input-custom loc-street" placeholder="Endereço Completo (Rua/Av) *" required></div>
+            <div class="col-md-2"><input type="text" class="form-control input-custom loc-num" placeholder="Número *" required></div>
+            <div class="col-md-4"><input type="text" class="form-control input-custom loc-comp" placeholder="Complemento (Sala, Apto...)"></div>
+            <div class="col-md-4"><input type="text" class="form-control input-custom loc-dist" placeholder="Bairro *" required></div>
+            <div class="col-md-3"><input type="text" class="form-control input-custom loc-city" placeholder="Cidade *" required></div>
+            <div class="col-md-1"><input type="text" class="form-control input-custom loc-state" placeholder="UF *" maxlength="2" required style="text-transform: uppercase;"></div>
+            <div class="col-12"><input type="text" class="form-control input-custom loc-ref" placeholder="Ponto de Referência"></div>
+        </div>
+
+        <div class="p-3 rounded-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 mt-3">
+            <h6 class="text-primary fw-bold small mb-2"><i class="bi bi-box-seam"></i> Quais itens serão entregues AQUI? *</h6>
+            <div class="linked-items-container d-flex flex-column gap-2"></div>
+        </div>
+    </div>
+</template>
+
+<script>
+    // ==========================================
+    // MÁSCARAS JAVASCRIPT (Copiadas do seu React)
+    // ==========================================
+    const formatCNPJ = (value) => {
+        return value
+            .replace(/\D/g, '')
+            .replace(/^(\d{2})(\d)/, '$1.$2')
+            .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+            .replace(/\.(\d{3})(\d)/, '.$1/$2')
+            .replace(/(\d{4})(\d)/, '$1-$2')
+            .slice(0, 18);
+    };
+
+    const formatPhone = (value) => {
+        return value
+            .replace(/\D/g, '')
+            .replace(/(\d{2})(\d)/, '($1) $2')
+            .replace(/(\d{5})(\d)/, '$1-$2')
+            .slice(0, 15);
+    };
+
+    const formatCEP = (value) => {
+        return value
+            .replace(/\D/g, '')
+            .replace(/(\d{5})(\d)/, '$1-$2')
+            .slice(0, 9);
+    };
+
+    let itemIdCounter = 0;
+    let locIdCounter = 0;
+
+    document.addEventListener("DOMContentLoaded", () => {
+        addItem();
+        addLocation();
+    });
+
+    function addItem() {
+        const template = document.getElementById('item-template');
+        const clone = template.content.cloneNode(true);
+        const card = clone.querySelector('.item-card');
+        
+        itemIdCounter++;
+        card.dataset.id = `itm-${itemIdCounter}`;
+        
+        document.getElementById('items-container').appendChild(clone);
+        syncItemsToLocations();
+    }
+
+    function removeItem(btn) {
+        const container = document.getElementById('items-container');
+        if (container.children.length <= 1) {
+            alert("A OS precisa ter pelo menos 1 item!");
+            return;
+        }
+        btn.closest('.item-card').remove();
+        syncItemsToLocations();
+    }
+
+    function addLocation() {
+        const template = document.getElementById('location-template');
+        const clone = template.content.cloneNode(true);
+        const card = clone.querySelector('.location-card');
+        
+        locIdCounter++;
+        card.dataset.id = `loc-${locIdCounter}`;
+        
+        document.getElementById('locations-container').appendChild(clone);
+        syncItemsToLocations();
+    }
+
+    function removeLocation(btn) {
+        const container = document.getElementById('locations-container');
+        if (container.children.length <= 1) {
+            alert("A OS precisa ter pelo menos 1 destino!");
+            return;
+        }
+        btn.closest('.location-card').remove();
+    }
+
+    function syncItemsToLocations() {
+        const itemsList = [];
+        // Lê os itens
+        document.querySelectorAll('.item-card').forEach(card => {
+            const id = card.dataset.id;
+            const desc = card.querySelector('.item-desc').value || "(Sem descrição)";
+            const qty = parseInt(card.querySelector('.item-qty').value) || 1;
+            const type = card.querySelector('.item-type').value;
+            itemsList.push({ id, desc, qty, type });
+        });
+
+        // Atualiza os destinos
+        document.querySelectorAll('.location-card').forEach(locCard => {
+            const container = locCard.querySelector('.linked-items-container');
+            const markedStates = {};
+            const qtysEntered = {};
+            
+            container.querySelectorAll('.item-checkbox').forEach(chk => {
+                markedStates[chk.value] = chk.checked;
+                const qtyInput = container.querySelector(`.qty-input-${chk.value}`);
+                if (qtyInput) qtysEntered[chk.value] = qtyInput.value;
+            });
+
+            container.innerHTML = ''; 
+
+            if (itemsList.length === 0) {
+                container.innerHTML = '<span class="text-muted small">Adicione itens primeiro.</span>';
+                return;
+            }
+
+            itemsList.forEach(item => {
+                const isChecked = markedStates[item.id] ? 'checked' : '';
+                const savedQty = qtysEntered[item.id] || 1; // Sempre começa distribuindo 1
+                const showQty = markedStates[item.id] ? 'block' : 'none'; 
+                
+                const html = `
+                    <div class="d-flex align-items-center gap-2 bg-white border rounded px-3 py-2 shadow-sm mb-2">
+                        <input class="form-check-input item-checkbox mt-0 cursor-pointer" type="checkbox" value="${item.id}" ${isChecked} 
+                               onchange="toggleQtyInput(this, '${locCard.dataset.id}', '${item.id}'); updateRemainingQuantities();">
+                        <label class="form-check-label flex-grow-1 small fw-bold cursor-pointer" onclick="if(!this.previousElementSibling.disabled) this.previousElementSibling.click()">
+                            ${item.desc} <span class="text-muted fw-normal">| Tipo: ${item.type} | <span class="disp-qty-text fw-bold text-primary">Restante: ${item.qty}</span></span>
+                        </label>
+                        <div class="qty-wrapper-${locCard.dataset.id}-${item.id}" style="display: ${showQty}; width: 80px;">
+                            <input type="number" class="form-control form-control-sm border-primary qty-input-${item.id}" 
+                                   value="${savedQty}" min="1" max="${item.qty}" oninput="updateRemainingQuantities()">
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', html);
+            });
+        });
+        
+        // Toda vez que a tela atualiza, ele recalcula o estoque
+        updateRemainingQuantities();
+    }
+
+    function toggleQtyInput(checkbox, locId, itemId) {
+        const wrapper = document.querySelector(`.qty-wrapper-${locId}-${itemId}`);
+        wrapper.style.display = checkbox.checked ? 'block' : 'none';
+        
+        // Se o usuário desmarcou a caixa, devolvemos a quantidade para 1 para não prender estoque invisível
+        if (!checkbox.checked) {
+            const input = document.querySelector(`.qty-wrapper-${locId}-${itemId} input`);
+            if(input) input.value = 1; 
+        }
+    }
+
+    // ==========================================
+    // CONTROLE DE ESTOQUE EM TEMPO REAL (O LIMITADOR)
+    // ==========================================
+    function updateRemainingQuantities() {
+        // 1. Pega o total original de cada item lá de cima
+        const itemTotals = {};
+        document.querySelectorAll('.item-card').forEach(card => {
+            const id = card.dataset.id;
+            itemTotals[id] = parseInt(card.querySelector('.item-qty').value) || 0;
+        });
+
+        // 2. Soma quanto já foi distribuído nos checkboxes marcados
+        const allocated = {};
+        document.querySelectorAll('.location-card').forEach(locCard => {
+            locCard.querySelectorAll('.item-checkbox:checked').forEach(chk => {
+                const itemId = chk.value;
+                const qtyInput = locCard.querySelector(`.qty-input-${itemId}`);
+                allocated[itemId] = (allocated[itemId] || 0) + (parseInt(qtyInput.value) || 0);
+            });
+        });
+
+        // 3. Atualiza os limites na tela para impedir o usuário de errar
+        document.querySelectorAll('.location-card').forEach(locCard => {
+            Object.keys(itemTotals).forEach(itemId => {
+                const total = itemTotals[itemId];
+                const usedTotal = allocated[itemId] || 0;
+                const globalRemaining = total - usedTotal; // Quanto sobra de verdade
+
+                const checkbox = locCard.querySelector(`.item-checkbox[value="${itemId}"]`);
+                if (!checkbox) return;
+
+                const qtyInput = locCard.querySelector(`.qty-input-${itemId}`);
+                const usedHere = checkbox.checked ? (parseInt(qtyInput.value) || 0) : 0;
+
+                // O limite MÁXIMO deste campo específico é o que sobra no mundo + o que ele já está usando
+                const availableForThisInput = globalRemaining + usedHere;
+
+                // Atualiza o texto na tela para mostrar quanto sobra
+                const labelSpan = checkbox.nextElementSibling.querySelector('.disp-qty-text');
+                if (labelSpan) {
+                    labelSpan.textContent = `Restante: ${globalRemaining}`;
+                    if (globalRemaining <= 0 && !checkbox.checked) {
+                        labelSpan.classList.replace('text-primary', 'text-danger');
+                    } else {
+                        labelSpan.classList.replace('text-danger', 'text-primary');
+                    }
+                }
+
+                // Trava o input de quantidade para não deixar passar
+                if (qtyInput) {
+                    qtyInput.max = availableForThisInput;
+                    if (parseInt(qtyInput.value) > availableForThisInput) {
+                        qtyInput.value = availableForThisInput; // Corta o valor excedente na hora
+                        setTimeout(updateRemainingQuantities, 10); // Roda de novo pra garantir
+                    }
+                }
+
+                if (globalRemaining <= 0 && !checkbox.checked) {
+                    checkbox.disabled = true;
+                } else {
+                    checkbox.disabled = false;
+                }
+            });
+        });
+    }
+
+    function submitForm() {
+        try {
+            const form = document.getElementById('osForm');
+            
+            // 1. Validação
+            if (!form.checkValidity()) {
+                alert("ATENÇÃO: Faltam campos obrigatórios!\nPor favor, preencha todas as caixinhas que possuem um asterisco (*) antes de gerar a OS.");
+                form.reportValidity(); 
+                return;
+            }
+
+            // 2. Coleta os Dados Gerais (Protegido contra campos deletados)
+            let payload = {
+                requester_name: document.getElementById('req_name')?.value || '',
+                requester_phone: document.getElementById('req_phone')?.value || '',
+                company_cnpj: document.getElementById('req_cnpj')?.value || '',
+                company_email: document.getElementById('req_email')?.value || '',
+                delivery_type: document.getElementById('delivery_type')?.value || 'Normal',
+                vehicle_type: document.getElementById('veh_type')?.value || 'MOTO',
+                priority: document.getElementById('priority')?.value || 'NORMAL',
+                payment_method: document.getElementById('pay_method')?.value || 'FATURADO',
+                general_notes: document.getElementById('general_notes')?.value || '',
+                
+                origin_name: document.getElementById('orig_name')?.value || '',
+                origin_street: document.getElementById('orig_street')?.value || '',
+                origin_number: document.getElementById('orig_number')?.value || '',
+                origin_district: document.getElementById('orig_district')?.value || '',
+                origin_city: document.getElementById('orig_city')?.value || '',
+                origin_zip_code: document.getElementById('orig_zip')?.value || '',
+                origin_state: document.getElementById('orig_state')?.value || '',
+                
+                items: [],
+                destinations: [],
+                distributions: []
+            };
+
+            // 3. Coleta os Itens (Protegido)
+            document.querySelectorAll('.item-card').forEach(card => {
+                payload.items.push({
+                    id: card.dataset.id,
+                    description: card.querySelector('.item-desc')?.value || '',
+                    quantity: parseInt(card.querySelector('.item-qty')?.value || 1),
+                    type: card.querySelector('.item-type')?.value || '',
+                    weight: card.querySelector('.item-weight')?.value || '',
+                    dimensions: card.querySelector('.item-dim')?.value || '',
+                    notes: card.querySelector('.item-notes')?.value || ''
+                });
+            });
+
+            let hasDistributionError = false;
+
+            // 4. Coleta os Destinos e Vínculos (Protegido)
+            document.querySelectorAll('.location-card').forEach(locCard => {
+                const locId = locCard.dataset.id;
+                
+                payload.destinations.push({
+                    id: locId,
+                    name: locCard.querySelector('.loc-name')?.value || '',
+                    phone: locCard.querySelector('.loc-phone')?.value || '',
+                    cep: locCard.querySelector('.loc-cep')?.value || '',
+                    street: locCard.querySelector('.loc-street')?.value || '',
+                    number: locCard.querySelector('.loc-num')?.value || '',
+                    complement: locCard.querySelector('.loc-comp')?.value || '',
+                    district: locCard.querySelector('.loc-dist')?.value || '',
+                    city: locCard.querySelector('.loc-city')?.value || '',
+                    state: locCard.querySelector('.loc-state')?.value || '',
+                    reference: locCard.querySelector('.loc-ref')?.value || ''
+                });
+
+                const checkedBoxes = locCard.querySelectorAll('.item-checkbox:checked');
+                if (checkedBoxes.length === 0) {
+                    alert(`ERRO: O destino "${locCard.querySelector('.loc-name')?.value}" não tem nenhum item marcado para entrega!`);
+                    hasDistributionError = true;
+                }
+
+                checkedBoxes.forEach(chk => {
+                    const itemId = chk.value;
+                    const qtyInput = locCard.querySelector(`.qty-input-${itemId}`);
+                    
+                    payload.distributions.push({
+                        item_id: itemId,
+                        dest_id: locId,
+                        quantity: parseInt(qtyInput?.value || 1)
+                    });
+                });
+            });
+
+            if (hasDistributionError) return;
+
+            // 5. Validação de Sobras/Faltas de Estoque
+            for (let item of payload.items) {
+                let totalDistribuido = payload.distributions
+                    .filter(d => d.item_id === item.id)
+                    .reduce((acc, curr) => acc + curr.quantity, 0);
+                
+                if (totalDistribuido > item.quantity) {
+                    alert(`ALERTA DE ESTOQUE: Você tentou entregar ${totalDistribuido}x "${item.description}", mas só informou ${item.quantity} nos itens!`);
+                    return;
+                }
+                if (totalDistribuido < item.quantity) {
+                    alert(`SOBRA DE PACOTE: Faltou vincular ${item.quantity - totalDistribuido} unidade(s) de "${item.description}" a um destino!`);
+                    return;
+                }
+            }
+
+            // 6. Envio para o Banco de Dados
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const btnSubmit = document.getElementById('btnSubmit');
+            
+            if (btnSubmit) {
+                btnSubmit.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processando...';
+                btnSubmit.disabled = true;
+            }
+
+            fetch('{% url "os_create" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('Tudo certo! OS Gerada com Sucesso: ' + data.os_number);
+                    window.location.href = '{% url "company_dashboard" %}'; 
+                } else {
+                    alert('Erro do servidor: ' + data.message);
+                    if (btnSubmit) {
+                        btnSubmit.innerHTML = '<i class="bi bi-send"></i> Gerar OS Oficial';
+                        btnSubmit.disabled = false;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Erro de Fetch:', error);
+                alert('Erro de conexão com o servidor. Tente novamente.');
+                if (btnSubmit) {
+                    btnSubmit.innerHTML = '<i class="bi bi-send"></i> Gerar OS Oficial';
+                    btnSubmit.disabled = false;
+                }
+            });
+
+        } catch (erroInterno) {
+            alert("Erro interno do painel: " + erroInterno.message);
+            console.error(erroInterno);
+        }
+    }
+</script>
+{% endblock %}
