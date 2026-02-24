@@ -1,7 +1,14 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="container py-3" style="max-width: 600px;"> <h4 class="mb-3">📱 Minhas Entregas</h4>
+<div class="container py-3" style="max-width: 600px;"> 
+    
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0 fw-bold text-dark">📱 Minhas Entregas</h4>
+        <a href="{% url 'motoboy_profile' %}" class="btn btn-outline-primary btn-sm fw-bold rounded-pill shadow-sm px-3">
+            <i class="bi bi-person-circle"></i> Meu Perfil
+        </a>
+    </div>
 
     {% if messages %}
         {% for message in messages %}
@@ -88,3 +95,11 @@
     </div>
 </div>
 {% endblock %}
+
+<script>
+    function pingServer() {
+        fetch("{% url 'motoboy_heartbeat' %}");
+    }
+    pingServer(); // Envia na hora que abre a tela
+    setInterval(pingServer, 60000);
+</script>

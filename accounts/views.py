@@ -1,9 +1,13 @@
 from django.shortcuts import render, redirect
 from django.contrib import messages
-from django.contrib.auth import login
+from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from .models import CustomUser
 from logistics.models import MotoboyProfile
+
+def custom_logout(request):
+    logout(request)
+    return redirect('login')
 
 @login_required
 def register_user_view(request):
@@ -44,10 +48,11 @@ def register_user_view(request):
         # Redireciona para o painel correto dependendo do tipo
         if user.type == CustomUser.Types.COMPANY:
             return redirect('company_dashboard')
-        # Aqui você pode colocar os redirects dos outros painéis quando criarmos
-        # elif user.type == CustomUser.Types.MOTOBOY:
-        #     return redirect('motoboy_dashboard')
+        elif user.type == CustomUser.Types.MOTOBOY:
+            return redirect('motoboy_tasks')
+        elif user.type == CustomUser.Types.DISPATCHER:
+            return redirect('dispatch_dashboard')
         else:
-            return redirect('root') # Volta pra home provisoriamente
+            return redirect('root')
 
     return render(request, 'accounts/register_user.html')

@@ -1,6 +1,7 @@
 import json
 from django.contrib.auth import logout
 from django.http import HttpResponse, JsonResponse
+from django.views.decorators.http import require_POST
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from .models import ServiceOrder, OSItem, OSDestination, ItemDistribution
@@ -31,6 +32,30 @@ def root_redirect(request):
         return redirect('dispatch_dashboard')
         
     return redirect('login')
+
+@login_required
+@require_POST
+def cancel_os_view(request, os_id):
+    # Busca a OS no banco
+    os = get_object_or_404(ServiceOrder, id=os_id)
+    
+    # Validação de Segurança: Quem pode cancelar?
+    # 1. A empresa dona da OS
+    # 2. O Despachante ou Admin
+    if request.user.type == 'COMPANY' and os.client != request.user:
+        return JsonResponse({'status': 'error', 'message': 'Você não tem permissão para cancelar esta OS.'}, status=403)
+        
+    # Regra de negócio: Só cancela se não estiver com o motoboy em rota avançada (opcional, mas recomendado)
+    if os.status in ['COLETADO', 'ENTREGUE']:
+        return JsonResponse({'status': 'error', 'message': 'Esta OS já está em rota ou foi entregue e não pode ser cancelada.'}, status=400)
+        
+    # Efetua o cancelamento
+    os.status = 'CANCELADO'
+    os.motoboy = None # Retira do motoboy, se houver
+    os.save()
+    
+    messages.success(request, f'A OS {os.os_number} foi cancelada com sucesso.')
+    return JsonResponse({'status': 'success'})
 
 @login_required
 def admin_dashboard_view(request):
@@ -125,6 +150,28 @@ def os_create_view(request):
                         quantity_allocated=dist_data['quantity']
                     )
 
+                # ========================================================
+                # 5. NOVO: GERA OS PONTOS DE PARADA (ROTEIRIZAÇÃO BASE)
+                # ========================================================
+                from orders.models import RouteStop # Importe no topo se preferir
+                
+                # Cria a Parada de Coleta (Sempre a Sequência 1 por padrão)
+                RouteStop.objects.create(
+                    service_order=os,
+                    stop_type='COLETA',
+                    sequence=1
+                )
+                
+                # Cria as Paradas de Entrega para cada destino (Sequência 2, 3...)
+                seq = 2
+                for dest_obj in dest_dict.values():
+                    RouteStop.objects.create(
+                        service_order=os,
+                        stop_type='ENTREGA',
+                        destination=dest_obj,
+                        sequence=seq
+                    )
+
             return JsonResponse({'status': 'success', 'os_number': os.os_number})
             
         except Exception as e:
@@ -139,74 +186,81 @@ def dispatch_dashboard_view(request):
     if request.user.type != 'DISPATCHER' and not request.user.is_superuser:
         return redirect('root')
 
-    # 1. Busca OS Pendentes (Prioridade para o despachante)
+    # 1. Coluna 2: Busca OS Pendentes (Aguardando Atribuição)
     pending_orders = ServiceOrder.objects.filter(status='PENDENTE').order_by('-priority', 'created_at')
     
-    # 2. Busca OS em Andamento (Para monitorar)
-    active_orders = ServiceOrder.objects.filter(
-        status__in=['ACEITO', 'COLETADO']
-    ).order_by('-created_at')
-
-    # 3. Lógica de Motoboys Online
-    motoboys = MotoboyProfile.objects.filter(is_available=True)
-    motoboy_status_list = []
+    # 2. Busca Motoboys e prepara os dados
+    from logistics.models import MotoboyProfile
+    motoboys = MotoboyProfile.objects.all()
     
+    motoboy_data = []
     for mb in motoboys:
-        # Verifica no cache se ele foi visto nos últimos 5 minutos
+        # VERIFICAÇÃO DE ONLINE RESTAURADA: Checa no cache se o usuário foi visto recentemente
         last_seen = cache.get(f'seen_{mb.user.id}')
-        is_online = False
-        if last_seen:
-            # Se quiser ser rigoroso, cheque a diferença de tempo
-            is_online = True
         
-        motoboy_status_list.append({
+        # O motoboy só aparece como "Livre/Online" se tiver com perfil liberado (is_available) 
+        # E tiver acessado o sistema nos últimos minutos (last_seen)
+        is_online = mb.is_available and bool(last_seen)
+
+        # Pega as OS ativas especificamente deste motoboy
+        ativas = mb.route_stops.filter(is_completed=False).order_by('sequence')
+        
+        motoboy_data.append({
             'profile': mb,
             'is_online': is_online,
-            'current_order': mb.deliveries.filter(status__in=['ACEITO', 'COLETADO']).first()
+            'load': ativas.count(),
+            'max_load': 10, # Capacidade fictícia
+            'active_stops': ativas,
         })
+        
+    # Ordena: Motoboys Online/Ativos primeiro na lista
+    motoboy_data.sort(key=lambda x: x['is_online'], reverse=True)
 
-    # Ordena: Online primeiro, depois Offline
-    motoboy_status_list.sort(key=lambda x: x['is_online'], reverse=True)
+    # 3. Métricas do Topo
+    total_ativas = sum(mb['load'] for mb in motoboy_data)
+    total_ocorrencias = ServiceOrder.objects.filter(status='OCORRENCIA').count()
 
     context = {
         'pending_orders': pending_orders,
-        'active_orders': active_orders,
-        'motoboys': motoboy_status_list,
-        'now': timezone.now(), # Para exibir data correta no topo
+        'motoboy_data': motoboy_data,
+        'total_ativas': total_ativas,
+        'total_ocorrencias': total_ocorrencias,
+        'now': timezone.now(),
     }
     return render(request, 'orders/dispatch_panel.html', context)
 
 @login_required
 def motoboy_tasks_view(request):
-    # Trava de segurança
     if request.user.type != 'MOTOBOY':
         return redirect('root')
 
-    # if not hasattr(request.user, 'motoboy_profile'):
-    #     logout(request) 
-    #     html_erro = """
-    #         <div style="font-family: Arial; text-align: center; margin-top: 50px;">
-    #             <h2 style="color: red;">Acesso Bloqueado</h2>
-    #             <p>Seu cadastro de Motoboy está incompleto (Falta CNH ou Veículo).</p>
-    #             <p>Peça ao Despachante para atualizar seu Perfil.</p>
-    #             <a href="/accounts/login/" style="padding: 10px 20px; background: #000; color: #fff; text-decoration: none; border-radius: 5px;">Voltar ao Login</a>
-    #         </div>
-    #     """
-    #     return HttpResponse(html_erro)
-        
-    perfil = request.user.motoboy_profile
+    # Tenta pegar o perfil. Se não existir, cria o "Pendente" silenciosamente
+    try:
+        perfil = request.user.motoboy_profile
+    except Exception:
+        from logistics.models import MotoboyProfile
+        perfil = MotoboyProfile.objects.create(
+            user=request.user,
+            vehicle_plate="Pendente",
+            cnh_number=f"Pendente_{request.user.id}",
+            category='TELE',
+            is_available=False
+        )
 
-    # 1. Busca Entregas Ativas (A fazer)
+    #  A MÁGICA AQUI: Se for o primeiro acesso, força ele pra tela de Perfil!
+    if 'Pendente' in perfil.cnh_number or 'Pendente' in perfil.vehicle_plate:
+        return redirect('motoboy_profile')
+
+    # Se estiver tudo preenchido, carrega o painel normalmente
     ativas = ServiceOrder.objects.filter(
         motoboy=perfil,
         status__in=['ACEITO', 'COLETADO']
     ).order_by('created_at')
 
-    # 2. Busca Histórico de Entregas (Finalizadas)
     historico = ServiceOrder.objects.filter(
         motoboy=perfil,
         status__in=['ENTREGUE', 'CANCELADO']
-    ).order_by('-created_at')[:10] # Mostra só as últimas 10
+    ).order_by('-created_at')[:10]
 
     context = {
         'ativas': ativas,
@@ -215,26 +269,84 @@ def motoboy_tasks_view(request):
     return render(request, 'orders/motoboy_tasks.html', context)
 
 @login_required
+def motoboy_profile_view(request):
+    if request.user.type != 'MOTOBOY':
+        return redirect('root')
+
+    perfil = getattr(request.user, 'motoboy_profile', None)
+    
+    # Identifica se é o primeiro acesso (para mudar os textos da tela)
+    is_first_access = 'Pendente' in perfil.cnh_number or 'Pendente' in perfil.vehicle_plate
+
+    if request.method == 'POST':
+        # Salva os dados do perfil
+        perfil.cnh_number = request.POST.get('cnh_number', perfil.cnh_number)
+        perfil.vehicle_plate = request.POST.get('vehicle_plate', perfil.vehicle_plate)
+        perfil.category = request.POST.get('category', perfil.category)
+        
+        # Pode aproveitar para atualizar telefone ou nome também
+        request.user.first_name = request.POST.get('first_name', request.user.first_name)
+        request.user.phone = request.POST.get('phone', request.user.phone)
+        request.user.save()
+
+        # Se ele preencheu, agora está liberado para o painel!
+        if 'Pendente' not in perfil.cnh_number and 'Pendente' not in perfil.vehicle_plate:
+            perfil.is_available = True
+            
+        perfil.save()
+        messages.success(request, "Perfil atualizado com sucesso!")
+        return redirect('motoboy_tasks')
+
+    context = {
+        'perfil': perfil,
+        'is_first_access': is_first_access
+    }
+    return render(request, 'orders/motoboy_profile.html', context)
+
+@login_required
 def assign_motoboy_view(request, os_id):
-    # Trava de segurança: Só despachante ou admin pode fazer isso
     if request.user.type != 'DISPATCHER' and not request.user.is_superuser:
         return redirect('root')
 
     if request.method == 'POST':
         motoboy_id = request.POST.get('motoboy_id')
-        
-        # Busca a OS e o Motoboy no banco de dados
         os = get_object_or_404(ServiceOrder, id=os_id)
+        
+        from logistics.models import MotoboyProfile
         motoboy = get_object_or_404(MotoboyProfile, id=motoboy_id)
         
-        # Faz o vínculo e atualiza o status
         os.motoboy = motoboy
         os.status = 'ACEITO'
         os.save()
         
-        messages.success(request, f"OS #{os.os_number} despachada com sucesso para {motoboy.user.first_name}!")
+        # --- MÁGICA DA ROTEIRIZAÇÃO: Passa as paradas para a fila do Motoboy ---
+        # Conta quantas paradas ativas o motoboy já tem
+        last_seq = motoboy.route_stops.filter(is_completed=False).count()
+        
+        # Adiciona as novas paradas no final da fila dele
+        for stop in os.stops.all():
+            last_seq += 1
+            stop.motoboy = motoboy
+            stop.sequence = last_seq
+            stop.save()
+            
+        messages.success(request, f"OS #{os.os_number} adicionada à rota de {motoboy.user.first_name}!")
         
     return redirect('dispatch_dashboard')
+
+@login_required
+def reorder_stops_view(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        stop_ids = data.get('stops', [])
+        
+        from orders.models import RouteStop
+        
+        # O Javascript manda a lista de IDs na nova ordem. A gente salva a nova sequência no banco (1, 2, 3...)
+        for index, stop_id in enumerate(stop_ids):
+            RouteStop.objects.filter(id=stop_id).update(sequence=index + 1)
+            
+        return JsonResponse({'status': 'success'})
 
 @login_required
 def motoboy_update_status(request, os_id):
@@ -253,6 +365,15 @@ def motoboy_update_status(request, os_id):
         messages.success(request, f"Status da OS #{os.os_number} atualizado para {os.get_status_display()}!")
 
     return redirect('motoboy_tasks')
+
+@login_required
+def motoboy_heartbeat_view(request):
+    """ Recebe o sinal do aplicativo/tela do motoboy para mantê-lo online """
+    if request.user.type == 'MOTOBOY':
+        # Mantém ele online no Cache por 2 minutos (120 segundos)
+        cache.set(f'seen_{request.user.id}', True, timeout=300)
+        return JsonResponse({'status': 'online'})
+    return JsonResponse({'status': 'ignored'})
 
 @login_required
 def dashboard(request):

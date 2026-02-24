@@ -140,3 +140,36 @@ class OrderStatusLog(models.Model):
     
     def __str__(self):
         return f"{self.order.os_number}: {self.status_anterior} -> {self.status_novo}"
+
+class RouteStop(models.Model):
+    """
+    Define um Ponto de Parada na rota de um motoboy. 
+    Uma OS com 1 coleta e 2 entregas vai gerar 3 RouteStops que o despachante pode reordenar livremente.
+    """
+    class StopType(models.TextChoices):
+        COLLECTION = 'COLETA', 'Coleta na Origem'
+        DELIVERY = 'ENTREGA', 'Entrega no Destino'
+
+    motoboy = models.ForeignKey('logistics.MotoboyProfile', on_delete=models.CASCADE, related_name='route_stops', null=True, blank=True)
+    service_order = models.ForeignKey(ServiceOrder, on_delete=models.CASCADE, related_name='stops')
+    
+    # Define se o motoboy está indo lá pra buscar o pacote ou pra entregar
+    stop_type = models.CharField(max_length=20, choices=StopType.choices)
+    
+    # Se for uma entrega, vinculamos qual é o destino específico. Se for coleta, fica vazio (pois usa a origem da OS).
+    destination = models.ForeignKey(OSDestination, on_delete=models.CASCADE, null=True, blank=True)
+    
+    # A ordem exata que o motoboy deve seguir (1, 2, 3, 4...)
+    sequence = models.PositiveIntegerField(default=0)
+    
+    # Status da parada
+    is_completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['motoboy', 'sequence']
+
+    def __str__(self):
+        tipo = "Coleta" if self.stop_type == 'COLETA' else "Entrega"
+        local = self.service_order.origin_name if self.stop_type == 'COLETA' else self.destination.destination_name
+        return f"{self.sequence}º Parada: {tipo} em {local} (OS {self.service_order.os_number})"

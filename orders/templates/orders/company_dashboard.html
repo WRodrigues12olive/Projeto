@@ -244,7 +244,15 @@
                                             
                                                     {% if os.status == 'PENDENTE' %}
                                                     <button class="btn btn-sm btn-light text-danger border rounded-3 shadow-sm" 
-                                                            onclick="alert('A função de cancelar a OS {{ os.os_number }} será implementada no próximo passo!')" 
+                                                            onclick="if(confirm('Tem certeza que deseja cancelar a OS {{ os.os_number }}?')) {
+                                                                fetch('{% url 'cancel_os' os.id %}', {
+                                                                    method: 'POST',
+                                                                    headers: {'X-CSRFToken': '{{ csrf_token }}'}
+                                                                }).then(response => {
+                                                                    if(response.ok) window.location.reload();
+                                                                    else alert('Erro ao cancelar a OS.');
+                                                                });
+                                                            }" 
                                                             title="Cancelar Solicitação">
                                                         <i class="bi bi-x-circle"></i>
                                                     </button>
