@@ -318,8 +318,9 @@
 
             itemsList.forEach(item => {
                 const isChecked = markedStates[item.id] ? 'checked' : '';
-                const savedQty = qtysEntered[item.id] || 1; // Sempre começa distribuindo 1
-                const showQty = markedStates[item.id] ? 'block' : 'none'; 
+                const savedQty = qtysEntered[item.id] || 1; 
+                const showQty = markedStates[item.id] ? 'block' : 'none';
+                const isDisabled = markedStates[item.id] ? '' : 'disabled'; 
                 
                 const html = `
                     <div class="d-flex align-items-center gap-2 bg-white border rounded px-3 py-2 shadow-sm mb-2">
@@ -330,7 +331,7 @@
                         </label>
                         <div class="qty-wrapper-${locCard.dataset.id}-${item.id}" style="display: ${showQty}; width: 80px;">
                             <input type="number" class="form-control form-control-sm border-primary qty-input-${item.id}" 
-                                   value="${savedQty}" min="1" max="${item.qty}" oninput="updateRemainingQuantities()">
+                                value="${savedQty}" min="1" max="${item.qty}" ${isDisabled} oninput="updateRemainingQuantities()">
                         </div>
                     </div>
                 `;
@@ -346,10 +347,15 @@
         const wrapper = document.querySelector(`.qty-wrapper-${locId}-${itemId}`);
         wrapper.style.display = checkbox.checked ? 'block' : 'none';
         
-        // Se o usuário desmarcou a caixa, devolvemos a quantidade para 1 para não prender estoque invisível
-        if (!checkbox.checked) {
-            const input = document.querySelector(`.qty-wrapper-${locId}-${itemId} input`);
-            if(input) input.value = 1; 
+        const input = document.querySelector(`.qty-wrapper-${locId}-${itemId} input`);
+        if (input) {
+            // Se o usuário desmarcou a caixa, devolvemos a quantidade para 1 e desabilitamos o campo
+            if (!checkbox.checked) {
+                input.value = 1; 
+                input.disabled = true;  // Ignora este campo na validação do form
+            } else {
+                input.disabled = false; // Volta a validar este campo
+            }
         }
     }
 

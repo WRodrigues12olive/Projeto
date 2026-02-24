@@ -230,6 +230,69 @@ def dispatch_dashboard_view(request):
     return render(request, 'orders/dispatch_panel.html', context)
 
 @login_required
+def get_route_stops(request, os_id):
+    """Retorna a rota de uma OS em JSON para montar a timeline no Modal"""
+    os = get_object_or_404(ServiceOrder, id=os_id)
+    stops = os.stops.all().order_by('sequence')
+    
+    data = []
+    for stop in stops:
+        data.append({
+            'id': stop.id,
+            'type': stop.stop_type,
+            'sequence': stop.sequence,
+            'location': os.origin_name if stop.stop_type == 'COLETA' else stop.destination.destination_name,
+            'address': os.origin_street if stop.stop_type == 'COLETA' else stop.destination.destination_street
+        })
+    return JsonResponse({'status': 'success', 'stops': data})
+
+@login_required
+@require_POST
+def merge_os_view(request):
+    """Funde duas Ordens de Serviço (Origem é incorporada ao Destino)"""
+    if request.user.type != 'DISPATCHER' and not request.user.is_superuser:
+        return JsonResponse({'status': 'error', 'message': 'Sem permissão.'}, status=403)
+
+    data = json.loads(request.body)
+    source_id = data.get('source_os')
+    target_id = data.get('target_os')
+
+    if source_id == target_id:
+        return JsonResponse({'status': 'error', 'message': 'Não é possível mesclar uma OS com ela mesma.'})
+
+    source_os = get_object_or_404(ServiceOrder, id=source_id)
+    target_os = get_object_or_404(ServiceOrder, id=target_id)
+
+    # Regra de Negócio: Só mescla se ambas estiverem Pendentes
+    if source_os.status != 'PENDENTE' or target_os.status != 'PENDENTE':
+        return JsonResponse({'status': 'error', 'message': 'Apenas OS PENDENTES podem ser mescladas.'})
+
+    with transaction.atomic():
+        # 1. Transfere os itens e destinos da OS de origem para a destino
+        OSItem.objects.filter(order=source_os).update(order=target_os)
+        OSDestination.objects.filter(order=source_os).update(order=target_os)
+
+        # 2. Transfere os pontos de rota (RouteStops)
+        last_seq = target_os.stops.count()
+        for stop in source_os.stops.order_by('sequence'):
+            last_seq += 1
+            stop.service_order = target_os
+            stop.sequence = last_seq
+            stop.save()
+
+        # 3. Registra a ação no histórico/observações operacionais
+        target_os.operational_notes += f"\n[MESCLADA] Incorporou coletas/entregas da OS {source_os.os_number}."
+        target_os.is_multiple_delivery = True
+        target_os.save()
+
+        # 4. Cancela a OS de Origem (Mantendo rastreabilidade)
+        source_os.status = 'CANCELADO'
+        source_os.operational_notes += f"\n[MESCLADA] Cancelada. Itens movidos para a OS {target_os.os_number}."
+        source_os.save()
+
+    return JsonResponse({'status': 'success'})
+
+@login_required
 def motoboy_tasks_view(request):
     if request.user.type != 'MOTOBOY':
         return redirect('root')

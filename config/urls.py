@@ -25,4 +25,6 @@ urlpatterns = [
     path('motoboy/perfil/', views.motoboy_profile_view, name='motoboy_profile'),   
     path('motoboy/heartbeat/', views.motoboy_heartbeat_view, name='motoboy_heartbeat'),
     path('painel-despacho/reordenar-paradas/', views.reorder_stops_view, name='reorder_stops'),
+    path('os/<int:os_id>/stops/', views.get_route_stops, name='get_route_stops'),
+    path('os/mesclar/', views.merge_os_view, name='merge_os'),
 ]

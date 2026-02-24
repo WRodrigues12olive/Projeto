@@ -27,6 +27,18 @@
     .draggable-card { cursor: grab; }
     .draggable-card:active { cursor: grabbing; }
     .drop-zone.drag-over { border-color: #3b82f6 !important; background-color: #eff6ff !important; transform: scale(1.02); }
+    
+    /* Efeito da Fusão de OS */
+    .drop-zone-os.drag-over-os {
+        border: 2px dashed #8b5cf6 !important; 
+        background-color: #f3e8ff !important; 
+        transform: scale(1.03); 
+        box-shadow: 0 10px 15px -3px rgba(139, 92, 246, 0.3);
+    }
+    
+    /* Timeline Logística no Modal */
+    .route-timeline .list-group-item { transition: all 0.2s; border-left: 4px solid transparent; }
+    .route-timeline .list-group-item:hover { background-color: #f8fafc; border-left-color: #3b82f6; }
 </style>
 
 <div class="dashboard-wrapper font-sans">
@@ -140,15 +152,21 @@
 
                     <div class="flex-grow-1 overflow-y-auto custom-scrollbar pe-2 d-flex flex-column gap-3">
                         {% for os in pending_orders %}
-                        <div class="bg-white p-3 rounded-3 border border-light shadow-sm draggable-card" 
+                        <div class="bg-white p-3 rounded-3 border border-light shadow-sm draggable-card drop-zone-os transition-all" 
                              style="border-left: 4px solid {% if os.priority == 'URGENTE' %}#ef4444{% else %}#3b82f6{% endif %} !important;"
                              draggable="true" 
-                             ondragstart="drag(event, '{{ os.id }}')">
+                             ondragstart="drag(event, '{{ os.id }}')"
+                             ondragover="allowOsDrop(event)"
+                             ondragleave="leaveOsDrop(event)"
+                             ondrop="dropMerge(event, '{{ os.id }}')">
                             
                             <div class="d-flex justify-content-between align-items-start mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <i class="bi bi-grip-vertical text-muted"></i>
                                     <span class="fw-bold font-monospace text-dark">{{ os.os_number }}</span>
+                                    {% if "[MESCLADA]" in os.operational_notes %}
+                                        <span class="badge bg-purple text-dark border border-purple border-opacity-25" style="background-color: #e9d5ff; color: #6b21a8;"><i class="bi bi-diagram-3"></i> Mesclada</span>
+                                    {% endif %}
                                 </div>
                                 <span class="badge bg-light text-secondary border">{{ os.get_priority_display }}</span>
                             </div>
@@ -260,6 +278,18 @@
             </div>
 
             <div class="modal-body p-4 bg-slate-50">
+                
+                <div class="mb-4 bg-white p-4 rounded-4 border shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-dark fw-bold text-uppercase mb-0 small d-flex align-items-center gap-2">
+                            <i class="bi bi-signpost-split text-primary"></i> Roteiro Logístico
+                        </h6>
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary border">Arraste para Reordenar</span>
+                    </div>
+                    <ul id="modalRouteTimeline" class="list-group route-timeline custom-scrollbar" style="max-height: 250px; overflow-y: auto;">
+                        </ul>
+                </div>
+
                 <div class="row g-3">
                     <div class="col-md-6">
                         <div class="bg-white p-4 rounded-3 border shadow-sm h-100">
@@ -350,6 +380,7 @@
     // ====================================================
     let currentModalOsId = null;
 
+    // Abertura do Modal completa e corrigida
     function openDispatchModal(id, number, status, company, priority, date, originName, originAddress) {
         currentModalOsId = id;
         document.getElementById('modalDispOsNumber').innerText = number;
@@ -363,6 +394,8 @@
         const assignBox = document.getElementById('modalAssignBox');
         if (status === 'PENDENTE') assignBox.classList.remove('d-none');
         else assignBox.classList.add('d-none');
+
+        fetchAndRenderStops(id);
 
         var modal = new bootstrap.Modal(document.getElementById('dispatchOsModal'));
         modal.show();
@@ -395,7 +428,100 @@
     }
 
     // ====================================================
-    // 3. ABAS RESPONSIVAS (Mobile)
+    // 3. MESCLAGEM INTELIGENTE DE OS (DRAG & MERGE)
+    // ====================================================
+    function allowOsDrop(ev) { ev.preventDefault(); ev.currentTarget.classList.add('drag-over-os'); }
+    function leaveOsDrop(ev) { ev.currentTarget.classList.remove('drag-over-os'); }
+
+    function dropMerge(ev, targetOsId) {
+        ev.preventDefault();
+        ev.currentTarget.classList.remove('drag-over-os');
+        const sourceOsId = ev.dataTransfer.getData("osId");
+
+        if (!sourceOsId || sourceOsId === targetOsId) return;
+
+        if(confirm("🔗 FUSÃO DE ROTAS\n\nDeseja mesclar essas duas Ordens de Serviço? A OS arrastada será cancelada e seus pontos de coleta/entrega serão adicionados a esta OS.")) {
+            document.body.style.cursor = 'wait';
+            fetch('/os/mesclar/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
+                body: JSON.stringify({ source_os: sourceOsId, target_os: targetOsId })
+            }).then(res => res.json()).then(data => {
+                document.body.style.cursor = 'default';
+                if(data.status === 'success') {
+                    window.location.reload(); 
+                } else {
+                    alert("Erro: " + data.message);
+                }
+            });
+        }
+    }
+
+    let modalSortableInstance = null;
+    
+    function fetchAndRenderStops(osId) {
+        const list = document.getElementById('modalRouteTimeline');
+        list.innerHTML = '<li class="list-group-item text-center text-muted border-0"><span class="spinner-border spinner-border-sm"></span> Carregando rota...</li>';
+
+        fetch(`/os/${osId}/stops/`)
+        .then(res => res.json())
+        .then(data => {
+            list.innerHTML = '';
+            data.stops.forEach(stop => {
+                const isColeta = stop.type === 'COLETA';
+                const icon = isColeta ? '<i class="bi bi-box-arrow-up text-danger fs-4"></i>' : '<i class="bi bi-box-arrow-down text-success fs-4"></i>';
+                const badgeColor = isColeta ? 'bg-danger' : 'bg-success';
+                
+                list.innerHTML += `
+                    <li class="list-group-item d-flex align-items-center gap-3 py-3" data-id="${stop.id}" style="cursor: grab;">
+                        <div class="d-flex flex-column align-items-center gap-1">
+                            <span class="badge ${badgeColor} rounded-pill shadow-sm">${stop.sequence}º</span>
+                        </div>
+                        <div>${icon}</div>
+                        <div class="flex-grow-1">
+                            <strong class="text-dark d-block mb-1">${stop.location}</strong>
+                            <small class="text-muted d-flex align-items-center gap-1"><i class="bi bi-geo-alt"></i> ${stop.address}</small>
+                        </div>
+                        <i class="bi bi-grip-vertical text-muted fs-5"></i>
+                    </li>
+                `;
+            });
+
+            // CORREÇÃO 2: Destrói o drag-and-drop antigo antes de aplicar o novo (evita bugar itens)
+            if (modalSortableInstance) {
+                modalSortableInstance.destroy();
+            }
+
+            modalSortableInstance = new Sortable(list, {
+                animation: 150,
+                ghostClass: 'bg-light',
+                onStart: function() { isInteracting = true; },
+                onEnd: function() {
+                    isInteracting = false;
+                    
+                    // CORREÇÃO 3: Filtra rigorosamente elementos fantasmas para não enviar IDs vazios ao banco
+                    let stopIds = Array.from(list.children)
+                        .map(item => item.dataset.id)
+                        .filter(id => id !== undefined && id !== null && id !== "");
+                    
+                    fetch("{% url 'reorder_stops' %}", {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
+                        body: JSON.stringify({ stops: stopIds })
+                    }).then(res => {
+                        if (res.ok) {
+                            fetchAndRenderStops(osId); 
+                        } else {
+                            alert("Erro ao salvar a ordem das rotas no banco.");
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    // ====================================================
+    // 5. ABAS RESPONSIVAS (Mobile)
     // ====================================================
     function switchTab(tabId) {
         document.querySelectorAll('.tab-content-col').forEach(el => { el.classList.remove('d-flex'); el.classList.add('d-none'); });
@@ -408,7 +534,7 @@
     }
 
     // ====================================================
-    // 4. ROTEIRIZADOR (Sortable.js) & AUTO-REFRESH
+    // 6. ROTEIRIZADOR (Sortable.js) & AUTO-REFRESH
     // ====================================================
     let isInteracting = false;
     let isModalOpen = false;
@@ -420,7 +546,6 @@
     document.getElementById('dispatchOsModal')?.addEventListener('show.bs.modal', () => isModalOpen = true);
     document.getElementById('dispatchOsModal')?.addEventListener('hidden.bs.modal', () => isModalOpen = false);
 
-    // Nova Função que "liga" o drag and drop das rotas
     function initRouteSortable() {
         document.querySelectorAll('.route-list').forEach(function(list) {
             new Sortable(list, {
@@ -452,7 +577,6 @@
         });
     }
 
-    // Chama na hora que a página carrega
     document.addEventListener("DOMContentLoaded", initRouteSortable);
 
     function autoRefreshDashboard() {
@@ -472,7 +596,6 @@
                 document.getElementById('col-aguardando').innerHTML = doc.getElementById('col-aguardando').innerHTML;
                 document.getElementById('col-atendimento').innerHTML = doc.getElementById('col-atendimento').innerHTML;
                 
-                // MÁGICA AQUI: Reconecta o Drag and Drop na tela nova após atualizar!
                 initRouteSortable();
             })
             .catch(error => console.log('Silencioso: Falha na autossincronização', error));
