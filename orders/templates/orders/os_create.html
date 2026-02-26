@@ -39,24 +39,29 @@
                     <div class="row g-3">
                         <div class="col-md-8">
                             <label class="form-label small fw-bold text-secondary">Empresa Solicitante *</label>
-                            <input type="text" id="req_company" class="form-control input-custom" placeholder="Nome da empresa" required>
+                            <input type="text" id="req_company" class="form-control input-custom" placeholder="Nome da empresa" 
+                                value="{{ request.user.first_name }}" required readonly style="background-color: #e2e8f0; cursor: not-allowed;">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary">CNPJ *</label>
-                            <input type="text" id="req_cnpj" class="form-control input-custom" placeholder="00.000.000/0000-00" maxlength="18" required oninput="this.value = formatCNPJ(this.value)">
+                            <input type="text" id="req_cnpj" class="form-control input-custom" placeholder="00.000.000/0000-00" 
+                                maxlength="18" value="{{ request.user.cnpj_cpf }}" required readonly style="background-color: #e2e8f0; cursor: not-allowed;">
                         </div>
                         
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary">Nome do Responsável *</label>
-                            <input type="text" id="req_name" class="form-control input-custom" placeholder="Pessoa de contato" required>
+                            <input type="text" id="req_name" class="form-control input-custom" placeholder="Pessoa de contato" 
+                                value="{{ request.user.username }}" required>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary">Telefone *</label>
-                            <input type="text" id="req_phone" class="form-control input-custom" placeholder="(00) 00000-0000" maxlength="15" required oninput="this.value = formatPhone(this.value)">
+                            <input type="text" id="req_phone" class="form-control input-custom" placeholder="(00) 00000-0000" 
+                                maxlength="15" value="{{ request.user.phone }}" required oninput="this.value = formatPhone(this.value)">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary">E-mail *</label>
-                            <input type="email" id="req_email" class="form-control input-custom" placeholder="contato@empresa.com" required>
+                            <input type="email" id="req_email" class="form-control input-custom" placeholder="contato@empresa.com" 
+                                value="{{ request.user.email }}" required>
                         </div>
 
                         <div class="col-md-3">
@@ -75,7 +80,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
 
             <div class="card rounded-xl shadow-sm border-0 mb-4 overflow-hidden">
                 <div class="card-header-custom">
@@ -85,7 +89,7 @@
                 <div class="card-body p-4">
                     <div class="row g-3">
                         <div class="col-12"><input type="text" id="orig_name" class="form-control input-custom" placeholder="Nome do Local de Retirada *" required></div>
-                        <div class="col-md-3"><input type="text" id="orig_zip" class="form-control input-custom" placeholder="CEP" maxlength="9" oninput="this.value = formatCEP(this.value)"></div>
+                        <div class="col-md-3"><input type="text" id="orig_zip" class="form-control input-custom" placeholder="CEP" maxlength="9" oninput="this.value = formatCEP(this.value)" onkeyup="buscarCEP(this, 'origem')"></div>
                         <div class="col-md-7"><input type="text" id="orig_street" class="form-control input-custom" placeholder="Rua *" required></div>
                         <div class="col-md-2"><input type="text" id="orig_number" class="form-control input-custom" placeholder="Número *" required></div>
                         <div class="col-md-5"><input type="text" id="orig_district" class="form-control input-custom" placeholder="Bairro *" required></div>
@@ -189,7 +193,7 @@
         <div class="row g-2 mb-3">
             <div class="col-md-6"><input type="text" class="form-control input-custom loc-name" placeholder="Destinatário (Nome/Empresa) *" required></div>
             <div class="col-md-6"><input type="text" class="form-control input-custom loc-phone" placeholder="Telefone no Local *" maxlength="15" required oninput="this.value = formatPhone(this.value)"></div>
-            <div class="col-md-3"><input type="text" class="form-control input-custom loc-cep" placeholder="CEP *" maxlength="9" required oninput="this.value = formatCEP(this.value)"></div>
+            <div class="col-md-3"><input type="text" class="form-control input-custom loc-cep" placeholder="CEP *" maxlength="9" required oninput="this.value = formatCEP(this.value)" onkeyup="buscarCEP(this, 'destino', this.closest('.location-card'))"></div>
             <div class="col-md-7"><input type="text" class="form-control input-custom loc-street" placeholder="Endereço Completo (Rua/Av) *" required></div>
             <div class="col-md-2"><input type="text" class="form-control input-custom loc-num" placeholder="Número *" required></div>
             <div class="col-md-4"><input type="text" class="form-control input-custom loc-comp" placeholder="Complemento (Sala, Apto...)"></div>
@@ -208,7 +212,7 @@
 
 <script>
     // ==========================================
-    // MÁSCARAS JAVASCRIPT (Copiadas do seu React)
+    // MÁSCARAS JAVASCRIPT
     // ==========================================
     const formatCNPJ = (value) => {
         return value
@@ -234,6 +238,57 @@
             .replace(/(\d{5})(\d)/, '$1-$2')
             .slice(0, 9);
     };
+
+    // ==========================================
+    // BUSCA AUTOMÁTICA DE CEP (VIACEP)
+    // ==========================================
+    async function buscarCEP(cepInput, type, cardElement = null) {
+        // Remove tudo que não for número
+        let cep = cepInput.value.replace(/\D/g, '');
+        
+        // Só faz a requisição se o CEP estiver completo (8 dígitos)
+        if (cep.length !== 8) return;
+
+        // Feedback visual
+        cepInput.style.opacity = '0.5';
+
+        try {
+            let response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            let data = await response.json();
+
+            if (data.erro) {
+                alert("CEP não encontrado!");
+                cepInput.style.opacity = '1';
+                return;
+            }
+
+            // Preenche os dados dependendo de onde o CEP foi digitado
+            if (type === 'origem') {
+                document.getElementById('orig_street').value = data.logradouro || '';
+                document.getElementById('orig_district').value = data.bairro || '';
+                document.getElementById('orig_city').value = data.localidade || '';
+                document.getElementById('orig_state').value = data.uf || '';
+                
+                // Joga o foco pro campo de número automaticamente
+                document.getElementById('orig_number').focus();
+            } 
+            else if (type === 'destino' && cardElement) {
+                cardElement.querySelector('.loc-street').value = data.logradouro || '';
+                cardElement.querySelector('.loc-dist').value = data.bairro || '';
+                cardElement.querySelector('.loc-city').value = data.localidade || '';
+                cardElement.querySelector('.loc-state').value = data.uf || '';
+                
+                // Joga o foco pro campo de número automaticamente
+                cardElement.querySelector('.loc-num').focus();
+            }
+        } catch (error) {
+            console.error("Erro na busca de CEP:", error);
+            alert("Erro ao buscar o CEP. Verifique sua conexão.");
+        } finally {
+            // Volta o input ao normal
+            cepInput.style.opacity = '1';
+        }
+    }
 
     let itemIdCounter = 0;
     let locIdCounter = 0;

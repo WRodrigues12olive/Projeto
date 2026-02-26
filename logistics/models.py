@@ -4,9 +4,9 @@ from django.conf import settings
 
 class MotoboyProfile(models.Model):
     class Categories(models.TextChoices):
-        TELE = 'TELE', 'Tele-Entrega (Por corrida)'
+        TELE = 'TELE', 'Tele-Entrega (Tele)'
         DIARIA = 'DIARIA', 'Diária'
-        MENSAL = 'MENSAL', 'Mensal Fixo'
+        MENSAL = 'MENSAL', 'Mensal'
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, 

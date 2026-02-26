@@ -4,7 +4,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from .models import ServiceOrder, OSItem, OSDestination, ItemDistribution
+from .models import ServiceOrder, OSItem, OSDestination, ItemDistribution, RouteStop
 from django.contrib import messages
 from accounts.models import CustomUser
 from .forms import ServiceOrderForm
@@ -232,24 +232,38 @@ def dispatch_dashboard_view(request):
 @login_required
 def get_route_stops(request, os_id):
     """Retorna a rota de uma OS em JSON para montar a timeline no Modal"""
-    os = get_object_or_404(ServiceOrder, id=os_id)
-    stops = os.stops.all().order_by('sequence')
+    os_alvo = get_object_or_404(ServiceOrder, id=os_id)
+    
+    # Importante: Usa o Q para pegar paradas da OS principal e das Filhas
+    from orders.models import RouteStop
+    stops = RouteStop.objects.filter(
+        Q(service_order=os_alvo) | Q(service_order__parent_os=os_alvo)
+    ).order_by('sequence')
     
     data = []
     for stop in stops:
+        # Puxa o nome e endereço originais (da OS dona daquela parada específica)
+        if stop.stop_type == 'COLETA':
+            location = stop.service_order.origin_name
+            address = f"(OS {stop.service_order.os_number}) {stop.service_order.origin_street}, {stop.service_order.origin_number}"
+        else:
+            location = stop.destination.destination_name
+            address = f"(OS {stop.service_order.os_number}) {stop.destination.destination_street}, {stop.destination.destination_number}"
+            
         data.append({
             'id': stop.id,
             'type': stop.stop_type,
             'sequence': stop.sequence,
-            'location': os.origin_name if stop.stop_type == 'COLETA' else stop.destination.destination_name,
-            'address': os.origin_street if stop.stop_type == 'COLETA' else stop.destination.destination_street
+            'location': location,
+            'address': address
         })
+        
     return JsonResponse({'status': 'success', 'stops': data})
 
 @login_required
 @require_POST
 def merge_os_view(request):
-    """Funde duas Ordens de Serviço (Origem é incorporada ao Destino)"""
+    """Funde duas Ordens de Serviço Visualmente (A Origem vira Filha do Destino)"""
     if request.user.type != 'DISPATCHER' and not request.user.is_superuser:
         return JsonResponse({'status': 'error', 'message': 'Sem permissão.'}, status=403)
 
@@ -263,32 +277,29 @@ def merge_os_view(request):
     source_os = get_object_or_404(ServiceOrder, id=source_id)
     target_os = get_object_or_404(ServiceOrder, id=target_id)
 
-    # Regra de Negócio: Só mescla se ambas estiverem Pendentes
     if source_os.status != 'PENDENTE' or target_os.status != 'PENDENTE':
         return JsonResponse({'status': 'error', 'message': 'Apenas OS PENDENTES podem ser mescladas.'})
 
     with transaction.atomic():
-        # 1. Transfere os itens e destinos da OS de origem para a destino
-        OSItem.objects.filter(order=source_os).update(order=target_os)
-        OSDestination.objects.filter(order=source_os).update(order=target_os)
+        # 1. Torna a OS Origem "Filha" da OS Destino
+        source_os.parent_os = target_os
+        # Muda o status para não aparecer mais na coluna "Aguardando", mas NÃO cancela.
+        source_os.status = 'AGRUPADO' 
+        source_os.operational_notes += f"\n[AGRUPADA] Viajando junto com a OS {target_os.os_number}."
+        source_os.save()
 
-        # 2. Transfere os pontos de rota (RouteStops)
+        # 2. Atualiza a numeração da sequência para o Modal
         last_seq = target_os.stops.count()
         for stop in source_os.stops.order_by('sequence'):
             last_seq += 1
-            stop.service_order = target_os
             stop.sequence = last_seq
             stop.save()
+            # Nota: NÃO mudamos o stop.service_order. As paradas continuam sendo da OS Original!
 
-        # 3. Registra a ação no histórico/observações operacionais
-        target_os.operational_notes += f"\n[MESCLADA] Incorporou coletas/entregas da OS {source_os.os_number}."
+        # 3. Registra na OS Mãe
+        target_os.operational_notes += f"\n[GRUPO] Levando também as entregas da OS {source_os.os_number}."
         target_os.is_multiple_delivery = True
         target_os.save()
-
-        # 4. Cancela a OS de Origem (Mantendo rastreabilidade)
-        source_os.status = 'CANCELADO'
-        source_os.operational_notes += f"\n[MESCLADA] Cancelada. Itens movidos para a OS {target_os.os_number}."
-        source_os.save()
 
     return JsonResponse({'status': 'success'})
 
@@ -297,28 +308,50 @@ def motoboy_tasks_view(request):
     if request.user.type != 'MOTOBOY':
         return redirect('root')
 
-    # Tenta pegar o perfil. Se não existir, cria o "Pendente" silenciosamente
     try:
         perfil = request.user.motoboy_profile
     except Exception:
         from logistics.models import MotoboyProfile
         perfil = MotoboyProfile.objects.create(
-            user=request.user,
-            vehicle_plate="Pendente",
-            cnh_number=f"Pendente_{request.user.id}",
-            category='TELE',
-            is_available=False
+            user=request.user, vehicle_plate="Pendente",
+            cnh_number=f"Pendente_{request.user.id}", category='TELE', is_available=False
         )
 
-    #  A MÁGICA AQUI: Se for o primeiro acesso, força ele pra tela de Perfil!
-    if 'Pendente' in perfil.cnh_number or 'Pendente' in perfil.vehicle_plate:
+    cnh_invalida = not perfil.cnh_number or 'Pendente' in perfil.cnh_number
+    placa_invalida = not perfil.vehicle_plate or 'Pendente' in perfil.vehicle_plate
+
+    if cnh_invalida or placa_invalida:
         return redirect('motoboy_profile')
 
-    # Se estiver tudo preenchido, carrega o painel normalmente
-    ativas = ServiceOrder.objects.filter(
+    # Busca APENAS as OS Principais (Mães) ou Avulsas
+    ativas_qs = ServiceOrder.objects.filter(
         motoboy=perfil,
-        status__in=['ACEITO', 'COLETADO']
+        status__in=['ACEITO', 'COLETADO'],
+        parent_os__isnull=True
     ).order_by('created_at')
+
+    ativas_data = []
+    for os in ativas_qs:
+        # Pega as paradas da OS principal e das filhas agrupadas nela
+        stops = RouteStop.objects.filter(
+            Q(service_order=os) | Q(service_order__parent_os=os)
+        ).order_by('sequence')
+        
+        filhas = os.child_orders.all()
+        
+        ativas_data.append({
+            'os': os,
+            'stops': stops,
+            'has_children': filhas.exists(),
+            'child_numbers': [f.os_number for f in filhas]
+        })
+
+    entregas_concluidas_hoje = RouteStop.objects.filter(
+        motoboy=perfil,
+        stop_type='ENTREGA',
+        is_completed=True,
+        completed_at__date=timezone.now().date()
+    ).count()
 
     historico = ServiceOrder.objects.filter(
         motoboy=perfil,
@@ -326,8 +359,9 @@ def motoboy_tasks_view(request):
     ).order_by('-created_at')[:10]
 
     context = {
-        'ativas': ativas,
+        'ativas_data': ativas_data,
         'historico': historico,
+        'entregas_concluidas': entregas_concluidas_hoje, # Enviando para o HTML
     }
     return render(request, 'orders/motoboy_tasks.html', context)
 
@@ -339,7 +373,9 @@ def motoboy_profile_view(request):
     perfil = getattr(request.user, 'motoboy_profile', None)
     
     # Identifica se é o primeiro acesso (para mudar os textos da tela)
-    is_first_access = 'Pendente' in perfil.cnh_number or 'Pendente' in perfil.vehicle_plate
+    cnh_invalida = not perfil.cnh_number or 'Pendente' in perfil.cnh_number
+    placa_invalida = not perfil.vehicle_plate or 'Pendente' in perfil.vehicle_plate
+    is_first_access = cnh_invalida or placa_invalida
 
     if request.method == 'POST':
         # Salva os dados do perfil
@@ -352,8 +388,11 @@ def motoboy_profile_view(request):
         request.user.phone = request.POST.get('phone', request.user.phone)
         request.user.save()
 
-        # Se ele preencheu, agora está liberado para o painel!
-        if 'Pendente' not in perfil.cnh_number and 'Pendente' not in perfil.vehicle_plate:
+        # Re-valida para liberar a conta
+        cnh_agora_valida = perfil.cnh_number and 'Pendente' not in perfil.cnh_number
+        placa_agora_valida = perfil.vehicle_plate and 'Pendente' not in perfil.vehicle_plate
+
+        if cnh_agora_valida and placa_agora_valida:
             perfil.is_available = True
             
         perfil.save()
@@ -378,22 +417,31 @@ def assign_motoboy_view(request, os_id):
         from logistics.models import MotoboyProfile
         motoboy = get_object_or_404(MotoboyProfile, id=motoboy_id)
         
+        # Atualiza a OS Mãe
         os.motoboy = motoboy
         os.status = 'ACEITO'
         os.save()
+
+        # Atualiza as OS Filhas (para as empresas verem que o motoboy aceitou!)
+        child_orders = ServiceOrder.objects.filter(parent_os=os)
+        child_orders.update(motoboy=motoboy, status='ACEITO')
         
-        # --- MÁGICA DA ROTEIRIZAÇÃO: Passa as paradas para a fila do Motoboy ---
-        # Conta quantas paradas ativas o motoboy já tem
+        # --- MÁGICA DA ROTEIRIZAÇÃO ---
         last_seq = motoboy.route_stops.filter(is_completed=False).count()
         
-        # Adiciona as novas paradas no final da fila dele
-        for stop in os.stops.all():
+        # Pega as paradas da Mãe E das Filhas
+        stops = RouteStop.objects.filter(
+            Q(service_order=os) | Q(service_order__parent_os=os)
+        ).order_by('sequence')
+
+        # Joga as paradas na fila do motoboy
+        for stop in stops:
             last_seq += 1
             stop.motoboy = motoboy
             stop.sequence = last_seq
             stop.save()
             
-        messages.success(request, f"OS #{os.os_number} adicionada à rota de {motoboy.user.first_name}!")
+        messages.success(request, f"Roteiro da OS #{os.os_number} adicionado à rota de {motoboy.user.first_name}!")
         
     return redirect('dispatch_dashboard')
 
@@ -412,20 +460,38 @@ def reorder_stops_view(request):
         return JsonResponse({'status': 'success'})
 
 @login_required
-def motoboy_update_status(request, os_id):
-    """ Função que é chamada quando o motoboy aperta os botões de ação """
-    if request.user.type != 'MOTOBOY' or request.method != 'POST':
+@require_POST
+def motoboy_update_status(request, stop_id):
+    """ O motoboy agora confirma a PARADA (RouteStop) específica """
+    if request.user.type != 'MOTOBOY':
         return redirect('root')
 
-    # Procura a OS garantindo que ela pertence A ESTE motoboy
-    os = get_object_or_404(ServiceOrder, id=os_id, motoboy__user=request.user)
-    novo_status = request.POST.get('status')
+    # Pega exatamente a parada que ele clicou
+    current_stop = get_object_or_404(RouteStop, id=stop_id, motoboy__user=request.user)
 
-    # Máquina de estados simples
-    if novo_status in ['COLETADO', 'ENTREGUE']:
-        os.status = novo_status
-        os.save()
-        messages.success(request, f"Status da OS #{os.os_number} atualizado para {os.get_status_display()}!")
+    if not current_stop.is_completed:
+        current_stop.is_completed = True
+        current_stop.completed_at = timezone.now()
+        current_stop.save()
+
+        # Verifica o status da OS dona desta parada
+        os = current_stop.service_order
+        
+        if current_stop.stop_type == 'COLETA':
+            os.status = 'COLETADO'
+            os.save()
+            messages.success(request, f"✅ Coleta da OS {os.os_number} confirmada!")
+            
+        elif current_stop.stop_type == 'ENTREGA':
+            # Quantas paradas faltam SÓ PARA ESTA OS?
+            paradas_restantes = os.stops.filter(is_completed=False).count()
+            
+            if paradas_restantes == 0:
+                os.status = 'ENTREGUE'
+                os.save()
+                messages.success(request, f"🎉 OS {os.os_number} totalmente finalizada!")
+            else:
+                messages.success(request, f"✅ Entrega confirmada! Partindo para o próximo destino.")
 
     return redirect('motoboy_tasks')
 

@@ -34,7 +34,7 @@
                             <h3 class="fw-bold mb-1">Bem-vindo(a), {{ user.first_name|default:user.username }}!</h3>
                             <p class="text-slate-400 small mb-0">Para começar a receber corridas, precisamos que complete seu cadastro.</p>
                         {% else %}
-                            <h3 class="fw-bold mb-1">Meu Perfil</h3>
+                            <h3 class="fw-bold mb-1">Olá, {{ user.first_name|default:user.username }}!</h3>
                             <p class="text-slate-400 small mb-0">Mantenha os dados do seu veículo sempre atualizados.</p>
                         {% endif %}
                     </div>
@@ -83,14 +83,6 @@
                                     <input type="text" name="vehicle_plate" class="form-control input-custom text-uppercase" 
                                            value="{% if 'Pendente' not in perfil.vehicle_plate %}{{ perfil.vehicle_plate }}{% endif %}" 
                                            placeholder="Ex: ABC1D23" required maxlength="10">
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label small fw-bold text-secondary mb-1">Categoria de Trabalho *</label>
-                                    <select name="category" class="form-select input-custom" required>
-                                        <option value="TELE" {% if perfil.category == 'TELE' %}selected{% endif %}>Tele-Entrega (Por corrida)</option>
-                                        <option value="DIARIA" {% if perfil.category == 'DIARIA' %}selected{% endif %}>Diária Fixa</option>
-                                        <option value="MENSAL" {% if perfil.category == 'MENSAL' %}selected{% endif %}>Mensal Fixo</option>
-                                    </select>
                                 </div>
                             </div>
 

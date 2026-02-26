@@ -6,6 +6,7 @@ import uuid
 class ServiceOrder(models.Model):
     class Status(models.TextChoices):
         PENDING = 'PENDENTE', 'Pendente'
+        AGRUPADO = 'AGRUPADO', 'Agrupado'
         ACCEPTED = 'ACEITO', 'Aceito pelo Motoboy'
         COLLECTED = 'COLETADO', 'Coletado / Em Trânsito'
         DELIVERED = 'ENTREGUE', 'Entregue'
@@ -66,6 +67,7 @@ class ServiceOrder(models.Model):
     geo_pickup_lat = models.CharField(max_length=50, blank=True, verbose_name="Geo Coleta (Lat)")
     geo_pickup_lng = models.CharField(max_length=50, blank=True, verbose_name="Geo Coleta (Lng)")
     is_multiple_delivery = models.BooleanField(default=False, editable=False) 
+    parent_os = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='child_orders', help_text="Se esta OS foi mesclada dentro de outra, a 'Mãe' aparecerá aqui.")
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
