@@ -1,485 +1,517 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 <style>
-    /* Variáveis e Utilitários (Estilo Tailwind replicado) */
-    body { background-color: #000; padding-top: 0 !important; }
+    /* FUNDO GERAL CINZA */
+    body { background-color: #e2e8f0; overflow: hidden; padding-top: 0 !important; }
     body > nav, .navbar-dark, body > header:not(.bg-white):not(.bg-slate-900) { display: none !important; }
-    
+
     .bg-slate-900 { background-color: #0f172a; }
-    .bg-slate-800 { background-color: #1e293b; }
-    .bg-slate-50 { background-color: #f8fafc; }
     .text-slate-400 { color: #94a3b8; }
     .text-slate-500 { color: #64748b; }
+    .bg-slate-800 { background-color: #1e293b; }
     
-    .app-container {
-        max-width: 480px;
-        margin: 0 auto;
-        background-color: #f8fafc;
-        height: 100vh;
-        overflow: hidden;
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 25px 50px -12px rgba(255, 255, 255, 0.25);
-    }
-
-    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 20px); }
-    .custom-scrollbar::-webkit-scrollbar { display: none; }
-    
-    .timeline-line {
-        position: absolute;
-        left: 23px;
-        top: 20px;
-        bottom: 40px;
-        width: 2px;
+    .dashboard-wrapper {
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        display: flex; flex-direction: column; 
         background-color: #e2e8f0;
-        z-index: 0;
+        z-index: 1000;
     }
 
-    /* Animações e Transições */
-    .view-transition {
-        transition: transform 0.3s ease-in-out, opacity 0.3s;
+    /* Scrollbar */
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+
+    /* Drag & Drop Visuals */
+    .draggable-card { cursor: grab; }
+    .draggable-card:active { cursor: grabbing; }
+    .drop-zone.drag-over { border-color: #3b82f6 !important; background-color: #eff6ff !important; transform: scale(1.02); }
+    .drop-zone-os.drag-over-os {
+        border: 2px dashed #8b5cf6 !important; 
+        background-color: #f3e8ff !important; 
+        transform: scale(1.03); 
+        box-shadow: 0 10px 15px -3px rgba(139, 92, 246, 0.3);
     }
-    .slide-in-right { transform: translateX(100%); opacity: 0; position: absolute; inset: 0; pointer-events: none;}
-    .slide-in-right.active { transform: translateX(0); opacity: 1; position: relative; pointer-events: auto; }
     
-    .slide-out-left { transform: translateX(-100%); opacity: 0; position: absolute; inset: 0; pointer-events: none;}
-    .slide-out-left.active { transform: translateX(0); opacity: 1; position: relative; pointer-events: auto; }
+    .route-timeline .list-group-item { transition: all 0.2s; border-left: 4px solid transparent; }
+    .route-timeline .list-group-item:hover { background-color: #f8fafc; border-left-color: #3b82f6; }
 
-    /* Estilos de Prioridade */
-    .badge-prioridade-URGENTE { background-color: #fef2f2; color: #b91c1c; font-weight: bold; animation: pulse 2s infinite;}
-    .badge-prioridade-AGENDADA { background-color: #f0f9ff; color: #0369a1; }
-    .badge-prioridade-NORMAL { background-color: #f1f5f9; color: #475569; }
-
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: .5; }
-    }
+    /* SLA Animations */
+    @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+    .sla-critical { border-left: 5px solid #ef4444 !important; animation: pulse-red 2s infinite; }
+    .sla-warning { border-left: 5px solid #f59e0b !important; }
+    
+    /* Ocorrências */
+    .occurrence-card { background-color: #fef2f2 !important; border: 2px solid #ef4444 !important; }
 </style>
 
-<div class="app-container font-sans">
-    
-    <div id="toast" class="position-absolute top-0 start-50 translate-middle-x mt-4 z-3 text-white px-4 py-2 rounded-pill shadow-lg d-none align-items-center gap-2" style="background-color: #1e293b; width: 90%; transition: opacity 0.3s;">
-        <i id="toast-icon" class="bi bi-check-circle text-success"></i>
-        <span id="toast-msg" class="small fw-bold text-truncate">Sucesso!</span>
-    </div>
+<div class="dashboard-wrapper font-sans">
 
-    <div id="view-list" class="view-transition slide-out-left active d-flex flex-column h-100 w-100">
-        
-        <div class="bg-slate-900 text-white pt-5 pb-4 px-4 rounded-bottom-4 shadow-sm shrink-0 position-relative z-1">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center border border-2 border-dark shadow-inner" style="width: 48px; height: 48px;">
-                        <i class="bi bi-bicycle fs-4 text-white"></i>
-                    </div>
-                    <div>
-                        <h5 class="fw-bold mb-0">Olá, {{ request.user.first_name|default:request.user.username }}</h5>
-                        <div class="d-flex align-items-center gap-2 mt-1">
-                            <span class="rounded-circle bg-success" style="width: 8px; height: 8px; animation: pulse 2s infinite;"></span>
-                            <span class="small text-slate-400 fw-bold">{{ request.user.motoboy_profile.get_category_display }} • Em Rota</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="d-flex gap-2 overflow-x-auto custom-scrollbar pb-2 justify-content-center">
-                <div class="bg-slate-800 border border-secondary border-opacity-25 p-3 rounded-4 text-center" style="min-width: 110px;">
-                    <p class="text-slate-400 fw-bold text-uppercase mb-1" style="font-size: 0.65rem; letter-spacing: 1px;">OS Ativas</p>
-                    <p class="fs-3 fw-bold text-white mb-0" id="kpi-os-ativas">{{ ativas_data|length }}</p>
-                </div>
-                <div class="bg-slate-800 border border-secondary border-opacity-25 p-3 rounded-4 text-center" style="min-width: 110px;">
-                    <p class="text-slate-400 fw-bold text-uppercase mb-1" style="font-size: 0.65rem; letter-spacing: 1px;">Entregas Rest.</p>
-                    <p class="fs-3 fw-bold text-warning mb-0" id="kpi-entregas">-</p>
-                </div>
-                <div class="bg-slate-800 border border-secondary border-opacity-25 p-3 rounded-4 text-center" style="min-width: 110px;">
-                    <p class="text-slate-400 fw-bold text-uppercase mb-1" style="font-size: 0.65rem; letter-spacing: 1px;">Entregas Feitas</p>
-                    <p class="fs-3 fw-bold text-success mb-0">{{ entregas_concluidas }}</p>
-                </div>
-            </div>
+    <div class="d-flex justify-content-between align-items-center px-4 py-2 bg-light border-bottom shadow-sm shrink-0">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-activity fs-5 text-primary"></i>
+            <h6 class="mb-0 fw-bold text-secondary">Painel de Despacho</h6>
         </div>
-
-        <div class="px-4 py-3 shrink-0 d-flex align-items-center justify-content-between">
-            <h6 class="fw-bold text-dark mb-0">Minhas Entregas</h6>
-        </div>
-
-        <div class="flex-grow-1 overflow-y-auto px-4 pb-5 custom-scrollbar" id="os-list-container">
-            </div>
-
-        <div class="position-absolute bottom-0 w-100 bg-white border-top pb-safe d-flex justify-content-around align-items-center z-2">
-            <button class="btn btn-link text-primary text-decoration-none d-flex flex-column align-items-center p-2">
-                <i class="bi bi-list-task fs-5 mb-1"></i>
-                <span class="fw-bold" style="font-size: 0.65rem;">Ativas</span>
-            </button>
-            <a href="{% url 'motoboy_profile' %}" class="btn btn-link text-secondary text-decoration-none d-flex flex-column align-items-center p-2">
-                <i class="bi bi-person fs-5 mb-1"></i>
-                <span class="fw-bold" style="font-size: 0.65rem;">Perfil</span>
+        <div class="d-flex align-items-center gap-3">
+            <span class="small fw-bold text-muted me-3 d-none d-md-inline"><i class="bi bi-clock"></i> {{ now|date:"d/m/Y • H:i" }}</span>
+            <a href="{% url 'dispatch_dashboard' %}" class="btn btn-sm btn-white border shadow-sm text-secondary fw-bold">
+                <i class="bi bi-arrow-clockwise"></i> Atualizar
+            </a>
+            <a href="{% url 'logout' %}" class="btn btn-sm btn-outline-danger fw-bold shadow-sm">
+                <i class="bi bi-box-arrow-right"></i> Sair
             </a>
         </div>
     </div>
 
-
-    <div id="view-execution" class="view-transition slide-in-right bg-slate-50 d-flex flex-column h-100 w-100">
-        
-        <div class="bg-slate-900 text-white px-3 py-3 shrink-0 d-flex align-items-center justify-content-between z-1 shadow-sm">
-            <button onclick="closeOS()" class="btn btn-link text-white p-2 text-decoration-none rounded-circle hover-bg-slate-800">
-                <i class="bi bi-arrow-left fs-4"></i>
-            </button>
-            <div class="text-center">
-                <h6 class="fw-bold font-monospace mb-0 text-slate-300" id="exec-os-number">OS-0000</h6>
-                <p class="text-primary mb-0" style="font-size: 0.7rem;" id="exec-etapa">Etapa X de Y</p>
-            </div>
-            <button class="btn btn-link text-slate-400 p-2 text-decoration-none">
-                <i class="bi bi-exclamation-triangle fs-5"></i>
-            </button>
-        </div>
-
-        <div class="flex-grow-1 overflow-y-auto pb-5 position-relative custom-scrollbar" style="padding-bottom: 120px !important;">
-            
-            <div class="bg-white p-4 rounded-bottom-4 shadow-sm border-bottom border-light mb-4" id="exec-current-card">
-                </div>
-
-            <div class="px-4">
-                <h6 class="fw-bold text-slate-400 text-uppercase mb-4 ms-2" style="font-size: 0.7rem; letter-spacing: 1px;">Roteiro Completo</h6>
-                
-                <div class="position-relative ps-3" id="exec-timeline">
-                    </div>
-            </div>
-        </div>
-
-        <div class="position-absolute bottom-0 w-100 bg-white border-top p-3 pb-safe z-3 shadow-lg" id="exec-bottom-action">
-            <form id="form-confirmar-etapa" method="POST" action="">
-                {% csrf_token %}
-                <input type="hidden" name="status" id="form-novo-status" value="">
-                
-                <button type="button" onclick="confirmarEtapa()" id="btn-confirmar" class="btn w-100 py-3 rounded-4 fw-bold fs-6 text-white d-flex align-items-center justify-content-center gap-2 shadow-sm transition-transform active:scale-95">
-                    <i class="bi bi-check-circle fs-5"></i> <span id="btn-confirmar-text">Confirmar</span>
-                </button>
-            </form>
-            
-            <button class="btn btn-link text-secondary w-100 mt-2 text-decoration-none fw-bold" style="font-size: 0.8rem;">
-                Reportar Problema
-            </button>
-        </div>
+    <div class="d-lg-none d-flex bg-white border-bottom border-secondary border-opacity-25 px-2 pt-2 gap-2 overflow-x-auto custom-scrollbar shrink-0">
+        <button id="tab-frota" onclick="switchTab('frota')" class="btn border-0 border-bottom border-primary border-3 text-primary fw-bold px-4 py-3 rounded-0 mobile-tab">Frota</button>
+        <button id="tab-aguardando" onclick="switchTab('aguardando')" class="btn border-0 text-secondary fw-bold px-4 py-3 rounded-0 mobile-tab">Aguardando ({{ pending_orders.count }})</button>
+        <button id="tab-atendimento" onclick="switchTab('atendimento')" class="btn border-0 text-secondary fw-bold px-4 py-3 rounded-0 mobile-tab">Em Atendimento ({{ total_ativas }})</button>
     </div>
 
+    <main class="flex-grow-1 p-3 p-lg-4 overflow-hidden">
+        <div class="row h-100 g-4">
+            
+            <div id="col-frota" class="col-12 col-lg-4 h-100 d-flex flex-column tab-content-col">
+                <div class="rounded-4 p-3 d-flex flex-column h-100 border shadow-sm" style="background-color: #f1f5f9; border-color: #e2e8f0;">
+                    <div class="d-flex align-items-center justify-content-between mb-3 px-1">
+                        <h6 class="fw-bold text-secondary mb-0 d-flex align-items-center gap-2">
+                            <i class="bi bi-truck fs-5"></i> Frota & Técnicos
+                        </h6>
+                        <span class="badge bg-white text-dark border rounded-pill">{{ motoboy_data|length }}</span>
+                    </div>
+                    
+                    <div class="flex-grow-1 overflow-y-auto custom-scrollbar pe-2 d-flex flex-column gap-3">
+                        {% for data in motoboy_data %}
+                        <div class="bg-white p-3 rounded-3 border shadow-sm drop-zone transition-all"
+                             ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="dropAssign(event, {{ data.profile.id }})">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div>
+                                    <h6 class="fw-bold text-dark mb-0">{{ data.profile.user.first_name }}</h6>
+                                    <span class="text-muted" style="font-size: 0.7rem;">{{ data.profile.get_category_display }}</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <a href="https://wa.me/55{{ data.profile.user.phone|default:''|cut:' '|cut:'-'|cut:'('|cut:')' }}?text=Olá {{ data.profile.user.first_name }}, prepara que tem rota!" target="_blank" class="btn btn-sm btn-success rounded-circle p-1 d-flex align-items-center justify-content-center" style="width: 28px; height: 28px;">
+                                        <i class="bi bi-whatsapp"></i>
+                                    </a>
+                                    {% if data.is_online %}
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25"><i class="bi bi-circle-fill" style="font-size: 0.4rem; vertical-align: middle;"></i> Livre</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">Offline</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div id="col-aguardando" class="col-12 col-lg-4 h-100 d-none d-lg-flex flex-column tab-content-col">
+                <div class="rounded-4 p-3 d-flex flex-column h-100 border shadow-sm" style="background-color: #f1f5f9; border-color: #e2e8f0;">
+                    <div class="d-flex align-items-center justify-content-between mb-3 px-1">
+                        <h6 class="fw-bold text-secondary mb-0 d-flex align-items-center gap-2">
+                            <i class="bi bi-clock fs-5"></i> Aguardando
+                        </h6>
+                        <span class="badge bg-white text-dark border rounded-pill">{{ pending_orders.count }}</span>
+                    </div>
+
+                    <div class="flex-grow-1 overflow-y-auto custom-scrollbar pe-2 d-flex flex-column gap-3">
+                        {% for os in pending_orders %}
+                        <div class="bg-white p-3 rounded-3 border border-light shadow-sm draggable-card drop-zone-os transition-all sla-tracker" 
+                             data-timestamp="{{ os.created_at.timestamp }}"
+                             style="border-left: 4px solid {% if os.priority == 'URGENTE' %}#ef4444{% else %}#3b82f6{% endif %} !important;"
+                             draggable="true" ondragstart="drag(event, '{{ os.id }}')" ondragover="allowOsDrop(event)" ondragleave="leaveOsDrop(event)" ondrop="dropMerge(event, '{{ os.id }}')">
+                            
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-grip-vertical text-muted"></i>
+                                    <span class="fw-bold font-monospace text-dark">{{ os.os_number }}</span>
+                                    <span class="badge sla-badge bg-light text-secondary border ms-1" style="font-size: 0.6rem;"><i class="bi bi-hourglass-split"></i> <span class="sla-text">0m</span></span>
+                                    {% if "[MESCLADA]" in os.operational_notes %}
+                                        <span class="badge bg-purple text-dark border border-purple border-opacity-25" style="background-color: #e9d5ff; color: #6b21a8;"><i class="bi bi-diagram-3"></i> Mesclada</span>
+                                    {% endif %}
+                                </div>
+                                <span class="badge bg-light text-secondary border">{{ os.get_priority_display }}</span>
+                            </div>
+                            
+                            <div class="ps-4 mb-3">
+                                <p class="fw-bold text-dark mb-0" style="font-size: 0.85rem;">{{ os.origin_name }}</p>
+                                <p class="text-muted mb-1 text-truncate" style="font-size: 0.75rem;"><i class="bi bi-geo-alt"></i> {{ os.origin_district }}</p>
+                            </div>
+
+                            <div class="ps-4">
+                                <button class="btn btn-sm btn-light border w-100 fw-bold text-secondary text-uppercase" style="font-size: 0.7rem;" 
+                                        onclick="openDispatchModal('{{ os.id }}', '{{ os.os_number }}', '{{ os.status }}', '{{ os.client.first_name|default:os.client.username|escapejs }}', '{{ os.get_priority_display }}', '{{ os.created_at|date:'d/m/Y H:i' }}', '{{ os.origin_name|escapejs }}', '{{ os.origin_street|escapejs }}, {{ os.origin_number }} - {{ os.origin_district|escapejs }}')">
+                                    Ver Detalhes
+                                </button>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="h-100 d-flex flex-column align-items-center justify-content-center text-muted opacity-50 text-center px-4">
+                            <i class="bi bi-check-circle fs-1 mb-2"></i>
+                            <p class="fw-bold mb-0">Fila zerada!</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div id="col-atendimento" class="col-12 col-lg-4 h-100 d-none d-lg-flex flex-column tab-content-col">
+                <div class="rounded-4 p-3 d-flex flex-column h-100 border shadow-sm" style="background-color: #f1f5f9; border-color: #e2e8f0;">
+                    <div class="d-flex align-items-center justify-content-between mb-3 px-1">
+                        <h6 class="fw-bold text-secondary mb-0 d-flex align-items-center gap-2">
+                            <i class="bi bi-geo-alt fs-5"></i> Em Atendimento
+                        </h6>
+                        <span class="badge bg-white text-dark border rounded-pill">{{ total_ativas }} OS</span>
+                    </div>
+
+                    <div class="flex-grow-1 overflow-y-auto custom-scrollbar pe-2 d-flex flex-column gap-3">
+                        {% for data in motoboy_data %}
+                            {% if data.active_stops %}
+                            {% with atual=data.active_stops|first %}
+                            <div class="bg-white rounded-4 border shadow-sm overflow-hidden mb-1 {% if atual.service_order.status == 'OCORRENCIA' %}occurrence-card{% endif %}">
+                                <div class="card-body p-3">
+                                    
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="fw-bold mb-0 text-dark d-flex align-items-center gap-2" style="font-size: 0.95rem;">
+                                            <i class="bi bi-person-circle fs-5 {% if atual.service_order.status == 'OCORRENCIA' %}text-danger{% else %}text-primary{% endif %}"></i> {{ data.profile.user.first_name }}
+                                        </h6>
+                                        <span class="badge {% if atual.service_order.status == 'OCORRENCIA' %}bg-danger{% else %}bg-primary{% endif %} bg-opacity-10 text-dark border px-2 py-1">
+                                            OS {{ atual.service_order.os_number }}
+                                        </span>
+                                    </div>
+
+                                    {% if atual.service_order.status == 'OCORRENCIA' %}
+                                        <div class="alert alert-danger p-2 mb-2 small fw-bold d-flex flex-column flex-md-row justify-content-between align-items-center gap-2">
+                                            <span><i class="bi bi-exclamation-triangle-fill"></i> ROTA TRAVADA</span>
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-danger fw-bold rounded-pill shadow-sm w-100 w-md-auto"
+                                                    data-os-id="{{ atual.service_order.id }}"
+                                                    data-os-number="{{ atual.service_order.os_number }}"
+                                                    data-notes="{{ atual.service_order.operational_notes }}"
+                                                    onclick="abrirModalResolver(this)">
+                                                Resolver
+                                            </button>
+                                        </div>
+                                    {% endif %}
+
+                                    <div class="p-2 rounded-3 bg-slate-50 border border-slate-200">
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            {% if atual.stop_type == 'COLETA' %}
+                                                <i class="bi bi-box-arrow-in-down text-danger"></i>
+                                                <span class="small fw-bold text-danger text-uppercase" style="letter-spacing: 0.5px; font-size: 0.65rem;">Indo coletar:</span>
+                                            {% else %}
+                                                <i class="bi bi-geo-alt text-success"></i>
+                                                <span class="small fw-bold text-success text-uppercase" style="letter-spacing: 0.5px; font-size: 0.65rem;">Entregando em:</span>
+                                            {% endif %}
+                                        </div>
+                                        <p class="small text-slate-800 mb-0 fw-bold text-truncate mt-1">
+                                            {% if atual.stop_type == 'COLETA' %}{{ atual.service_order.origin_street }}{% else %}{{ atual.destination.destination_street }}{% endif %}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endwith %}
+                            {% endif %}
+                        {% empty %}
+                        <div class="h-100 d-flex flex-column align-items-center justify-content-center text-muted opacity-50 text-center px-4">
+                            <i class="bi bi-bicycle fs-1 mb-2"></i>
+                            <p class="fw-bold mb-0">Nenhum motoboy em rota.</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+</div>
+
+<div id="csrf-container" style="display: none;">{% csrf_token %}</div>
+
+<div class="modal fade" id="dispatchOsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden">
+            <div class="modal-header bg-slate-900 text-white border-0 p-4 d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="bg-white bg-opacity-10 p-2 rounded-3"><i class="bi bi-box-seam fs-3 text-primary"></i></div>
+                    <div>
+                        <h4 class="modal-title font-monospace fw-bold mb-0" id="modalDispOsNumber">OS-0000</h4>
+                        <span id="modalDispOsStatus" class="badge bg-warning text-dark mt-1">Status</span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4 bg-slate-50">
+                <div class="mb-4 bg-white p-4 rounded-4 border shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-dark fw-bold text-uppercase mb-0 small"><i class="bi bi-signpost-split text-primary"></i> Roteiro Logístico</h6>
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary border">Arraste para Reordenar</span>
+                    </div>
+                    <ul id="modalRouteTimeline" class="list-group route-timeline custom-scrollbar" style="max-height: 250px; overflow-y: auto;"></ul>
+                </div>
+                <div class="mt-4 bg-primary bg-opacity-10 p-4 rounded-4 border border-primary border-opacity-25" id="modalAssignBox">
+                    <h6 class="text-primary fw-bold text-uppercase mb-3 small"><i class="bi bi-truck"></i> Atribuição Rápida</h6>
+                    <div class="d-flex gap-2">
+                        <select id="modalCourierSelect" class="form-select border-primary shadow-sm fw-bold text-secondary">
+                            <option value="">Selecione um técnico disponível...</option>
+                            {% for data in motoboy_data %}
+                                {% if data.is_online %}<option value="{{ data.profile.id }}">{{ data.profile.user.first_name }}</option>{% endif %}
+                            {% endfor %}
+                        </select>
+                        <button type="button" class="btn btn-primary fw-bold px-4 shadow-sm text-uppercase" onclick="submitModalAssign()">Atribuir OS</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="resolveProblemModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+            <div class="modal-header bg-danger text-white border-0 rounded-top-4">
+                <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-octagon"></i> Tratar Ocorrência</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            
+            <div class="modal-body p-4 bg-slate-50">
+                <p class="text-slate-500 small fw-bold text-uppercase mb-2">Relatório do Motoboy:</p>
+                <div class="bg-white p-3 rounded-3 border border-danger border-opacity-25 shadow-sm text-dark font-monospace small mb-4 custom-scrollbar" 
+                     style="max-height: 150px; overflow-y: auto; white-space: pre-wrap;" 
+                     id="modalProblemNotes"></div>
+                
+                <p class="text-slate-500 small fw-bold text-uppercase mb-3">Qual decisão tomar na OS <span id="modalProblemOsNumber" class="text-danger"></span>?</p>
+                
+                <div class="d-flex flex-column gap-2">
+                    <button onclick="submitResolveAction('reactivate')" class="btn btn-success fw-bold py-3 shadow-sm d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-play-circle fs-5 me-2 align-middle"></i> Ignorar / Reativar Rota</span>
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                    
+                    <button onclick="submitResolveAction('unassign')" class="btn btn-warning fw-bold py-3 shadow-sm d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-arrow-return-left fs-5 me-2 align-middle"></i> Tirar do Motoboy (Voltar à Fila)</span>
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                    
+                    <button onclick="submitResolveAction('cancel')" class="btn btn-outline-danger bg-white fw-bold py-3 shadow-sm border-2 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-x-circle fs-5 me-2 align-middle"></i> Cancelar OS Definitivamente</span>
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
-    // Converte os dados do pacote do Django num Objeto JS.
-    const myOrders = [
-        {% for data in ativas_data %}
-        {
-            id: "{{ data.os.id }}",
-            os_number: "{{ data.os.os_number }}",
-            priority: "{{ data.os.priority }}",
-            priorityDisplay: "{{ data.os.get_priority_display }}",
-            status: "{{ data.os.status }}",
-            has_children: {{ data.has_children|yesno:"true,false" }},
-            child_numbers: "{{ data.child_numbers|join:', ' }}",
-            stops: [
-                {% for stop in data.stops %}
-                {
-                    id: "{{ stop.id }}",
-                    type: "{{ stop.stop_type }}",
-                    sequence: {{ stop.sequence }},
-                    is_completed: {{ stop.is_completed|yesno:"true,false" }},
-                    // Pega inteligentemente os dados da OS daquela parada específica
-                    name: "{% if stop.stop_type == 'COLETA' %}{{ stop.service_order.origin_name|escapejs }}{% else %}{{ stop.destination.destination_name|escapejs }}{% endif %}",
-                    address: "{% if stop.stop_type == 'COLETA' %}{{ stop.service_order.origin_street|escapejs }}, {{ stop.service_order.origin_number }} - {{ stop.service_order.origin_district|escapejs }}{% else %}{{ stop.destination.destination_street|escapejs }}, {{ stop.destination.destination_number }} - {{ stop.destination.destination_district|escapejs }}{% endif %}",
-                    reference: "{% if stop.stop_type == 'COLETA' %}{{ stop.service_order.origin_reference|escapejs|default:'' }}{% else %}{{ stop.destination.destination_reference|escapejs|default:'' }}{% endif %}",
-                    contact: "{% if stop.stop_type == 'COLETA' %}{{ stop.service_order.origin_phone|escapejs }}{% else %}{{ stop.destination.destination_phone|escapejs }}{% endif %}",
-                    os_origem: "{{ stop.service_order.os_number }}",
-                    
-                    items_details: [
-                        {% if stop.stop_type == 'COLETA' %}
-                            {% for item in stop.service_order.items.all %}
-                            { desc: "{{ item.description|escapejs }}", qty: {{ item.total_quantity }}, type: "{{ item.item_type|escapejs|default:'Item' }}" },
-                            {% endfor %}
-                        {% else %}
-                            {% for dist in stop.destination.distributed_items.all %}
-                            { desc: "{{ dist.item.description|escapejs }}", qty: {{ dist.quantity_allocated }}, type: "{{ dist.item.item_type|escapejs|default:'Item' }}" },
-                            {% endfor %}
-                        {% endif %}
-                    ]
-                },
-                {% endfor %}
-            ]
-        },
-        {% endfor %}
-    ];
-
-    let activeOs = null;
-
-    function renderList() {
-        const container = document.getElementById('os-list-container');
-        let totalEntregasPendentes = 0; 
-        container.innerHTML = '';
-
-        if (myOrders.length === 0) {
-            container.innerHTML = `
-                <div class="d-flex flex-column align-items-center justify-content-center h-100 text-slate-400 mt-5">
-                    <i class="bi bi-check-circle fs-1 mb-2 opacity-50"></i>
-                    <p class="small fw-bold">Tudo limpo por aqui!</p>
-                </div>
-            `;
-            document.getElementById('kpi-entregas').innerText = "0";
-            return;
-        }
-
-        // Usamos o index para saber qual é a primeira da fila (0) e quais são as próximas (1, 2, 3...)
-        myOrders.forEach((os, index) => {
-            const entregasPendentes = os.stops.filter(s => !s.is_completed && s.type === 'ENTREGA');
-            totalEntregasPendentes += entregasPendentes.length;
-            
-            const paradasPendentes = os.stops.filter(s => !s.is_completed);
-            const nextStop = paradasPendentes.length > 0 ? paradasPendentes[0] : null;
-            
-            const isColeta = nextStop && nextStop.type === 'COLETA';
-            const iconBgClass = isColeta ? 'bg-warning bg-opacity-10' : 'bg-primary bg-opacity-10';
-            const iconColorClass = isColeta ? 'text-warning' : 'text-primary';
-            const iconClass = isColeta ? 'bi-box-seam' : 'bi-geo-alt';
-
-            // REGRA: Se o index for maior que 0 (ou seja, não é a primeira OS), ela fica bloqueada!
-            const isLocked = index > 0;
-
-            const card = document.createElement('div');
-            // Se estiver bloqueado, deixamos o cartão um pouco transparente para dar a ideia de "inativo"
-            card.className = `bg-white p-3 rounded-4 shadow-sm border border-slate-200 mb-3 position-relative overflow-hidden transition-all ${isLocked ? 'opacity-75' : ''}`;
-            card.style.cursor = isLocked ? "not-allowed" : "pointer";
-            
-            // Regra do clique: Se estiver bloqueado, solta um aviso. Se não, abre a OS normalmente.
-            card.onclick = () => {
-                if (isLocked) {
-                    showToast('🚨 Conclua a sua OS atual antes de iniciar a próxima!', false);
-                } else {
-                    openOS(os.id);
+    function getCSRFToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === ('csrftoken=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
                 }
-            };
-
-            const mescladaBadge = os.has_children 
-                ? `<div class="rounded-3 px-2 py-1 mb-2 d-inline-block small fw-bold w-100" style="background-color: #f3e8ff; color: #6b21a8; font-size: 0.7rem;"><i class="bi bi-diagram-3"></i> Múltiplas Entregas: Inclui ${os.child_numbers}</div>` 
-                : '';
-
-            card.innerHTML = `
-                ${mescladaBadge}
-                <div class="d-flex justify-content-between align-items-start mb-2">
-                    <span class="font-monospace fw-bold fs-5 text-dark">${os.os_number}</span>
-                    <span class="badge badge-prioridade-${os.priority} px-2 py-1" style="font-size: 0.65rem;">${os.priorityDisplay}</span>
-                </div>
-                
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1" style="font-size: 0.7rem;">${os.status}</span>
-                    <span class="small fw-bold text-slate-500" style="font-size: 0.75rem;">${entregasPendentes.length} entregas aqui</span>
-                </div>
-
-                ${nextStop ? `
-                <div class="bg-slate-50 p-2 rounded-3 border border-light d-flex align-items-start gap-3 mt-2 ${isLocked ? 'grayscale' : ''}">
-                    <div class="${iconBgClass} rounded-circle d-flex align-items-center justify-content-center mt-1 flex-shrink-0" style="width: 28px; height: 28px;">
-                        <i class="bi ${iconClass} ${iconColorClass}"></i>
-                    </div>
-                    <div class="flex-grow-1 text-truncate">
-                        <p class="text-slate-400 fw-bold text-uppercase mb-0" style="font-size: 0.6rem; letter-spacing: 1px;">Próxima Ação: ${nextStop.type}</p>
-                        <p class="text-dark fw-bold text-truncate mb-0" style="font-size: 0.85rem;">${nextStop.name}</p>
-                        <p class="text-slate-500 text-truncate mb-0" style="font-size: 0.7rem;">${nextStop.address.split('-')[0]}</p>
-                    </div>
-                </div>
-                ` : `<div class="alert alert-success py-2 mb-0 mt-2 small fw-bold text-center"><i class="bi bi-check-circle"></i> Rota Finalizada</div>`}
-                
-                ${isLocked ? `
-                <div class="w-100 py-2 mt-3 bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-3 small fw-bold d-flex align-items-center justify-content-center gap-2">
-                    <i class="bi bi-lock-fill"></i> Aguardando OS anterior
-                </div>
-                ` : `
-                <div class="w-100 py-2 mt-3 bg-slate-900 text-white rounded-3 small fw-bold d-flex align-items-center justify-content-center gap-2 shadow-sm">
-                    Iniciar Roteiro <i class="bi bi-chevron-right"></i>
-                </div>
-                `}
-            `;
-            container.appendChild(card);
-        });
-
-        document.getElementById('kpi-entregas').innerText = totalEntregasPendentes;
-    }
-
-    function openOS(id) {
-        sessionStorage.setItem('reopenOsId', id); 
-        
-        activeOs = myOrders.find(o => o.id === id);
-        
-        const currentStopIndex = activeOs.stops.findIndex(s => !s.is_completed);
-        const currentStop = currentStopIndex !== -1 ? activeOs.stops[currentStopIndex] : null;
-        const isDelivery = currentStop && currentStop.type === 'ENTREGA';
-
-        document.getElementById('exec-os-number').innerText = activeOs.os_number;
-        document.getElementById('exec-etapa').innerText = `Etapa ${currentStopIndex !== -1 ? currentStopIndex + 1 : activeOs.stops.length} de ${activeOs.stops.length}`;
-
-        const cardContainer = document.getElementById('exec-current-card');
-        const bottomAction = document.getElementById('exec-bottom-action');
-
-        if (currentStop) {
-            const badgeClass = isDelivery ? 'bg-primary bg-opacity-10 text-primary' : 'bg-warning bg-opacity-10 text-warning';
-            const itemsTitle = isDelivery ? 'Itens para Entregar Aqui' : 'Itens para Coletar';
-            
-            let itemsHTML = '<ul class="list-group list-group-flush mb-0">';
-            currentStop.items_details.forEach(item => {
-                itemsHTML += `
-                <li class="list-group-item bg-transparent px-0 py-2 d-flex justify-content-between align-items-center border-bottom border-light">
-                    <div class="text-truncate me-2">
-                        <span class="fw-black text-dark fs-6">${item.qty}x</span> 
-                        <span class="text-secondary fw-bold ms-1" style="font-size: 0.85rem;">${item.desc}</span>
-                    </div>
-                    <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1">${item.type}</span>
-                </li>`;
-            });
-            itemsHTML += '</ul>';
-            
-            cardContainer.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <span class="badge ${badgeClass} border fw-bold text-uppercase" style="font-size: 0.65rem;">Próxima Ação: ${currentStop.type}</span>
-                    <span class="text-slate-400 fw-bold" style="font-size: 0.7rem;">Parada ${currentStop.sequence}</span>
-                </div>
-                
-                <h3 class="fw-bold text-dark mb-2">${currentStop.name}</h3>
-                
-                <div class="d-flex align-items-start gap-2 mt-3 mb-4">
-                    <i class="bi bi-geo-alt fs-5 text-slate-400 mt-1"></i>
-                    <div>
-                        <p class="text-dark fw-bold mb-0" style="font-size: 0.85rem;">${currentStop.address}</p>
-                        ${currentStop.reference ? `<p class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 mt-1 mb-0 p-1 text-wrap text-start">Ref: ${currentStop.reference}</p>` : ''}
-                    </div>
-                </div>
-
-                <div class="bg-slate-50 p-3 rounded-4 border border-light mb-3">
-                    <p class="text-slate-400 fw-bold text-uppercase mb-2" style="font-size: 0.65rem; letter-spacing: 1px;">
-                        <i class="bi bi-box-seam text-dark"></i> ${itemsTitle}
-                    </p>
-                    ${itemsHTML}
-                </div>
-
-                <div class="bg-slate-50 p-3 rounded-4 border border-light mb-4 d-flex justify-content-between align-items-center">
-                    <div>
-                        <p class="text-slate-400 fw-bold text-uppercase mb-0" style="font-size: 0.65rem;">Contato no local</p>
-                        ${currentStop.contact ? `<p class="fw-bold text-dark mb-0">${currentStop.contact}</p>` : `<p class="fw-bold text-slate-400 mb-0">Não informado</p>`}
-                    </div>
-                    ${currentStop.contact ? `<a href="tel:${currentStop.contact}" class="btn btn-primary btn-sm rounded-pill fw-bold px-3 py-2 shadow-sm d-flex align-items-center gap-1"><i class="bi bi-telephone"></i> Ligar</a>` : ''}
-                </div>
-
-                <div class="d-flex gap-2">
-                    <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(currentStop.address)}" target="_blank" class="btn btn-light text-primary fw-bold w-50 py-2 d-flex justify-content-center align-items-center gap-2 border shadow-sm">
-                        <i class="bi bi-cursor"></i> Navegar
-                    </a>
-                    <button type="button" onclick="copiarReferencia('${currentStop.reference || ''}')" class="btn btn-light text-secondary fw-bold w-50 py-2 d-flex justify-content-center align-items-center gap-2 border shadow-sm">
-                        <i class="bi bi-copy"></i> Copiar Ref.
-                    </button>
-                </div>
-            `;
-
-            const btnConfirmar = document.getElementById('btn-confirmar');
-            document.getElementById('btn-confirmar-text').innerText = `Confirmar ${currentStop.type === 'COLETA' ? 'Coleta' : 'Entrega'}`;
-            
-            if (isDelivery) {
-                btnConfirmar.className = "btn btn-primary w-100 py-3 rounded-4 fw-bold fs-6 text-white d-flex align-items-center justify-content-center gap-2 shadow-sm transition-transform";
-            } else {
-                btnConfirmar.className = "btn btn-warning w-100 py-3 rounded-4 fw-bold fs-6 text-dark d-flex align-items-center justify-content-center gap-2 shadow-sm transition-transform";
             }
-            
-            // O botão agora envia o ID da PARADA, garantindo o funcionamento do back-end
-            document.getElementById('form-confirmar-etapa').action = `/minhas-entregas/atualizar/${currentStop.id}/`;
-            bottomAction.classList.remove('d-none');
-
-        } else {
-            cardContainer.innerHTML = `
-                <div class="bg-success text-white p-4 rounded-4 text-center shadow-sm">
-                    <i class="bi bi-check-circle fs-1 mb-2"></i>
-                    <h4 class="fw-bold">OS Finalizada!</h4>
-                    <p class="small text-white-50 mb-0">Todas as etapas concluídas com sucesso.</p>
-                </div>
-            `;
-            bottomAction.classList.add('d-none');
         }
+        if (!cookieValue) {
+            const tokenInput = document.querySelector('[name=csrfmiddlewaretoken]');
+            if (tokenInput) cookieValue = tokenInput.value;
+        }
+        return cookieValue;
+    }
 
-        const timeline = document.getElementById('exec-timeline');
-        timeline.innerHTML = '<div class="timeline-line"></div>';
-
-        activeOs.stops.forEach((stop, index) => {
-            const isCompleted = stop.is_completed;
-            const isCurrent = index === currentStopIndex;
+    // SLA (TEMPO NA FILA)
+    function updateSLAs() {
+        const now = Math.floor(Date.now() / 1000);
+        document.querySelectorAll('.sla-tracker').forEach(card => {
+            const timestamp = parseInt(card.getAttribute('data-timestamp'));
+            if(!timestamp) return;
+            const diffMinutes = Math.floor((now - timestamp) / 60);
+            const badge = card.querySelector('.sla-badge');
+            const text = card.querySelector('.sla-text');
+            if(text) text.innerText = diffMinutes + 'm';
             
-            const dotClass = isCompleted ? 'bg-success border-success' : (isCurrent ? 'bg-white border-primary border-3' : 'bg-slate-50 border-secondary border-2');
-            const iconHTML = isCompleted ? '<i class="bi bi-check text-white" style="font-size: 0.8rem;"></i>' : (isCurrent ? '<div class="bg-primary rounded-circle" style="width: 8px; height: 8px;"></div>' : '');
-            const typeBadge = stop.type === 'COLETA' ? 'bg-warning bg-opacity-10 text-warning' : 'bg-primary bg-opacity-10 text-primary';
-
-            timeline.innerHTML += `
-                <div class="d-flex gap-3 position-relative z-1 mb-4 ${isCompleted ? 'opacity-50' : ''}">
-                    <div class="${dotClass} rounded-circle d-flex align-items-center justify-content-center mt-1 flex-shrink-0" style="width: 22px; height: 22px; z-index: 2;">
-                        ${iconHTML}
-                    </div>
-                    <div class="flex-grow-1">
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <span class="fw-bold text-slate-400" style="font-size: 0.7rem;">#${index + 1}</span>
-                            <span class="badge ${typeBadge} px-2 border" style="font-size: 0.6rem;">${stop.type}</span>
-                            ${activeOs.has_children ? `<span class="badge bg-light text-secondary border px-1" style="font-size: 0.55rem;">${stop.os_origem}</span>` : ''}
-                        </div>
-                        <p class="fw-bold mb-0 ${isCurrent ? 'text-dark fs-6' : 'text-slate-500 small'}">${stop.name}</p>
-                        <p class="text-slate-400 mb-0 text-truncate" style="font-size: 0.7rem; max-width: 250px;">${stop.address.split('-')[0]}</p>
-                    </div>
-                </div>
-            `;
+            if (diffMinutes >= 60) {
+                card.classList.add('sla-critical');
+                if(badge) { badge.classList.replace('bg-light', 'bg-danger'); badge.classList.replace('text-secondary', 'text-white'); }
+                if(text) text.innerText = diffMinutes + 'm 🔥';
+            } else if (diffMinutes >= 30) {
+                card.classList.add('sla-warning');
+                if(badge) { badge.classList.replace('bg-light', 'bg-warning'); badge.classList.replace('text-secondary', 'text-dark'); }
+            }
         });
+    }
+    setInterval(updateSLAs, 60000); setTimeout(updateSLAs, 1000);
 
-        document.getElementById('view-list').classList.remove('active');
-        document.getElementById('view-execution').classList.add('active');
+    // ==========================================
+    // MODAL DE RESOLUÇÃO
+    // ==========================================
+    let problemOsId = null;
+
+    function abrirModalResolver(btnElement) {
+        problemOsId = btnElement.getAttribute('data-os-id');
+        const osNumber = btnElement.getAttribute('data-os-number');
+        const notes = btnElement.getAttribute('data-notes');
+
+        document.getElementById('modalProblemOsNumber').innerText = osNumber;
+        
+        if (notes && notes.trim() !== '' && notes !== 'None') {
+            document.getElementById('modalProblemNotes').innerText = notes;
+        } else {
+            document.getElementById('modalProblemNotes').innerText = "Nenhuma observação reportada.";
+        }
+        
+        var modal = new bootstrap.Modal(document.getElementById('resolveProblemModal'));
+        modal.show();
     }
 
-    function closeOS() {
-        document.getElementById('view-execution').classList.remove('active');
-        document.getElementById('view-list').classList.add('active');
-        activeOs = null;
-        sessionStorage.removeItem('reopenOsId');
-    }
-
-    function copiarReferencia(texto) {
-        if (!texto || texto === 'None' || texto.trim() === '') {
-            showToast('Nenhuma referência disponível.', false);
+    function submitResolveAction(action) {
+        if (!problemOsId) return;
+        
+        if (action === 'cancel') {
+            if(confirm("Tem a certeza que deseja CANCELAR definitivamente esta OS?")) {
+                document.body.style.cursor = 'wait';
+                fetch(`/os/${problemOsId}/cancelar/`, {
+                    method: 'POST',
+                    headers: {'X-CSRFToken': getCSRFToken()}
+                }).then(res => window.location.reload());
+            }
             return;
         }
-        navigator.clipboard.writeText(texto).then(() => showToast('Copiado!')).catch(() => showToast('Erro.', false));
+
+        document.body.style.cursor = 'wait';
+        fetch(`/painel-despacho/resolver/${problemOsId}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({ action: action })
+        }).then(res => window.location.reload());
     }
 
-    function confirmarEtapa() {
-        const btn = document.getElementById('btn-confirmar');
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processando...';
-        btn.disabled = true;
-        document.getElementById('form-confirmar-etapa').submit();
+    // ATRIBUIÇÃO E DRAG
+    function assignMotoboySecurely(osId, motoboyId) {
+        document.body.style.cursor = 'wait';
+        const form = document.createElement('form');
+        form.method = 'POST'; form.action = `/painel-despacho/atribuir/${osId}/`;
+        const inputCsrf = document.createElement('input'); inputCsrf.type = 'hidden'; inputCsrf.name = 'csrfmiddlewaretoken'; inputCsrf.value = getCSRFToken(); form.appendChild(inputCsrf);
+        const inputMotoboy = document.createElement('input'); inputMotoboy.type = 'hidden'; inputMotoboy.name = 'motoboy_id'; inputMotoboy.value = motoboyId; form.appendChild(inputMotoboy);
+        document.body.appendChild(form); form.submit();
     }
 
-    function showToast(msg, isSuccess = true) {
-        const toast = document.getElementById('toast');
-        const icon = document.getElementById('toast-icon');
-        document.getElementById('toast-msg').innerText = msg;
-        icon.className = isSuccess ? 'bi bi-check-circle text-success' : 'bi bi-exclamation-triangle text-warning';
-        toast.classList.remove('d-none');
-        setTimeout(() => toast.classList.add('d-none'), 3000);
+    function drag(ev, osId) { ev.dataTransfer.setData("osId", osId); }
+    function allowDrop(ev) { ev.preventDefault(); ev.currentTarget.classList.add('drag-over'); }
+    function dragLeave(ev) { ev.currentTarget.classList.remove('drag-over'); }
+    function dropAssign(ev, motoboyId) {
+        ev.preventDefault(); ev.currentTarget.classList.remove('drag-over');
+        var osId = ev.dataTransfer.getData("osId"); if (!osId) return;
+        assignMotoboySecurely(osId, motoboyId);
     }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        renderList();
-        
-        // MÁGICA: Verifica se ele estava no meio de uma OS quando a página recarregou
-        const savedOsId = sessionStorage.getItem('reopenOsId');
-        if (savedOsId) {
-            // Verifica se a OS ainda existe na lista de ativas
-            const osExists = myOrders.find(o => o.id === savedOsId);
-            
-            if (osExists) {
-                // Se ainda tiver etapas, abre a tela dela na hora! (O motoboy nem percebe que a tela piscou)
-                openOS(savedOsId); 
-            } else {
-                // Se não existir mais (foi 100% entregue), limpa a memória e deixa na tela inicial
-                sessionStorage.removeItem('reopenOsId');
-            }
+    function allowOsDrop(ev) { ev.preventDefault(); ev.currentTarget.classList.add('drag-over-os'); }
+    function leaveOsDrop(ev) { ev.currentTarget.classList.remove('drag-over-os'); }
+    function dropMerge(ev, targetOsId) {
+        ev.preventDefault(); ev.currentTarget.classList.remove('drag-over-os');
+        const sourceOsId = ev.dataTransfer.getData("osId");
+        if (!sourceOsId || sourceOsId === targetOsId) return;
+        if(confirm("🔗 FUSÃO DE ROTAS\nDeseja mesclar essas duas Ordens de Serviço?")) {
+            document.body.style.cursor = 'wait';
+            fetch('/os/mesclar/', {
+                method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
+                body: JSON.stringify({ source_os: sourceOsId, target_os: targetOsId })
+            }).then(res => res.json()).then(data => {
+                if(data.status === 'success') window.location.reload(); 
+                else { document.body.style.cursor = 'default'; alert("Erro: " + data.message); }
+            });
         }
-    });
+    }
+
+    // MODAL DE ROTEIRO
+    let currentModalOsId = null;
+    let modalSortableInstance = null;
+
+    function openDispatchModal(id, number, status, company, priority, date, originName, originAddress) {
+        currentModalOsId = id;
+        document.getElementById('modalDispOsNumber').innerText = number;
+        document.getElementById('modalDispOsStatus').innerText = status;
+        const assignBox = document.getElementById('modalAssignBox');
+        if (status === 'PENDENTE') assignBox.classList.remove('d-none'); else assignBox.classList.add('d-none');
+        fetchAndRenderStops(id);
+        var modal = new bootstrap.Modal(document.getElementById('dispatchOsModal'));
+        modal.show();
+    }
+
+    function submitModalAssign() {
+        const motoboyId = document.getElementById('modalCourierSelect').value;
+        if (!motoboyId) { alert("⚠️ Selecione um técnico."); return; }
+        if (!currentModalOsId) return;
+        assignMotoboySecurely(currentModalOsId, motoboyId);
+    }
+
+    function fetchAndRenderStops(osId) {
+        const list = document.getElementById('modalRouteTimeline');
+        list.innerHTML = '<li class="list-group-item text-center border-0"><span class="spinner-border spinner-border-sm"></span></li>';
+        fetch(`/os/${osId}/stops/`).then(res => res.json()).then(data => {
+            list.innerHTML = '';
+            data.stops.forEach(stop => {
+                const isColeta = stop.type === 'COLETA';
+                const icon = isColeta ? '<i class="bi bi-box-arrow-up text-danger fs-4"></i>' : '<i class="bi bi-box-arrow-down text-success fs-4"></i>';
+                const badgeColor = isColeta ? 'bg-danger' : 'bg-success';
+                list.innerHTML += `
+                    <li class="list-group-item d-flex align-items-center gap-3 py-3" data-id="${stop.id}" style="cursor: grab;">
+                        <span class="badge ${badgeColor} rounded-pill shadow-sm">${stop.sequence}º</span>
+                        <div>${icon}</div>
+                        <div class="flex-grow-1"><strong class="text-dark d-block mb-1">${stop.location}</strong></div>
+                        <i class="bi bi-grip-vertical text-muted fs-5"></i>
+                    </li>`;
+            });
+            if (modalSortableInstance) modalSortableInstance.destroy();
+            modalSortableInstance = new Sortable(list, {
+                animation: 150, ghostClass: 'bg-light',
+                onStart: function() { isInteracting = true; },
+                onEnd: function() {
+                    isInteracting = false;
+                    let stopIds = Array.from(list.children).map(i => i.dataset.id).filter(id => id);
+                    fetch("{% url 'reorder_stops' %}", {
+                        method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
+                        body: JSON.stringify({ stops: stopIds })
+                    }).then(res => { if(res.ok) fetchAndRenderStops(osId); });
+                }
+            });
+        });
+    }
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content-col').forEach(el => { el.classList.remove('d-flex'); el.classList.add('d-none'); });
+        document.getElementById('col-' + tabId).classList.remove('d-none'); document.getElementById('col-' + tabId).classList.add('d-flex');
+        document.querySelectorAll('.mobile-tab').forEach(el => { el.classList.remove('border-bottom', 'border-primary', 'border-3', 'text-primary'); el.classList.add('text-secondary'); });
+        document.getElementById('tab-' + tabId).classList.remove('text-secondary'); document.getElementById('tab-' + tabId).classList.add('border-bottom', 'border-primary', 'border-3', 'text-primary');
+    }
+
+    let isInteracting = false; let isModalOpen = false;
+    document.addEventListener('mousedown', () => isInteracting = true); document.addEventListener('mouseup', () => isInteracting = false);
+    document.getElementById('dispatchOsModal')?.addEventListener('show.bs.modal', () => isModalOpen = true);
+    document.getElementById('resolveProblemModal')?.addEventListener('show.bs.modal', () => isModalOpen = true);
+    document.getElementById('dispatchOsModal')?.addEventListener('hidden.bs.modal', () => isModalOpen = false);
+    document.getElementById('resolveProblemModal')?.addEventListener('hidden.bs.modal', () => isModalOpen = false);
+
+    function autoRefreshDashboard() {
+        if (isInteracting || isModalOpen) return; 
+        fetch(window.location.href).then(response => response.text()).then(html => {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            document.getElementById('col-frota').innerHTML = doc.getElementById('col-frota').innerHTML;
+            document.getElementById('col-aguardando').innerHTML = doc.getElementById('col-aguardando').innerHTML;
+            document.getElementById('col-atendimento').innerHTML = doc.getElementById('col-atendimento').innerHTML;
+            updateSLAs();
+        }).catch(e => console.log(e));
+    }
+    setInterval(autoRefreshDashboard, 10000);
 </script>
 {% endblock %}

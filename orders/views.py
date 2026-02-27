@@ -470,28 +470,44 @@ def motoboy_update_status(request, stop_id):
     current_stop = get_object_or_404(RouteStop, id=stop_id, motoboy__user=request.user)
 
     if not current_stop.is_completed:
+        
+        # 1. SE FOR ENTREGA: Salva os dados do Comprovante (POD)
+        if current_stop.stop_type == 'ENTREGA' and current_stop.destination:
+            dest = current_stop.destination
+            
+            # Pega o nome digitado e a foto enviada pelo formulário
+            receiver_name = request.POST.get('receiver_name')
+            proof_photo = request.FILES.get('proof_photo')
+            
+            if receiver_name:
+                dest.receiver_name = receiver_name
+            if proof_photo:
+                dest.proof_photo = proof_photo
+                
+            dest.is_delivered = True
+            dest.delivered_at = timezone.now()
+            dest.save()
+
+        # 2. Conclui a Etapa
         current_stop.is_completed = True
         current_stop.completed_at = timezone.now()
         current_stop.save()
 
-        # Verifica o status da OS dona desta parada
+        # 3. Atualiza o Status Geral da OS
         os = current_stop.service_order
-        
         if current_stop.stop_type == 'COLETA':
             os.status = 'COLETADO'
             os.save()
-            messages.success(request, f"✅ Coleta da OS {os.os_number} confirmada!")
+            messages.success(request, f"Coleta confirmada!")
             
         elif current_stop.stop_type == 'ENTREGA':
-            # Quantas paradas faltam SÓ PARA ESTA OS?
             paradas_restantes = os.stops.filter(is_completed=False).count()
-            
             if paradas_restantes == 0:
                 os.status = 'ENTREGUE'
                 os.save()
-                messages.success(request, f"🎉 OS {os.os_number} totalmente finalizada!")
+                messages.success(request, f"OS finalizada com sucesso!")
             else:
-                messages.success(request, f"✅ Entrega confirmada! Partindo para o próximo destino.")
+                messages.success(request, f"Entrega confirmada! Partindo para o próximo destino.")
 
     return redirect('motoboy_tasks')
 
@@ -548,3 +564,63 @@ def company_dashboard_view(request):
     }
     
     return render(request, 'orders/company_dashboard.html', context)
+
+@login_required
+@require_POST
+def report_problem_view(request, stop_id):
+    """ Regista uma ocorrência e trava a OS """
+    if request.user.type != 'MOTOBOY':
+        return redirect('root')
+
+    # Encontra a parada e a OS associada
+    current_stop = get_object_or_404(RouteStop, id=stop_id, motoboy__user=request.user)
+    os = current_stop.service_order
+
+    motivo = request.POST.get('motivo', 'Outro')
+    detalhes = request.POST.get('detalhes', '')
+
+    # Muda o status para OCORRENCIA para piscar vermelho no painel do despachante
+    os.status = 'OCORRENCIA'
+    
+    # Grava o que aconteceu no histórico
+    nova_nota = f"\n[🚨 OCORRÊNCIA - Parada {current_stop.sequence} ({current_stop.stop_type})] Motivo: {motivo}. Detalhes: {detalhes}"
+    os.operational_notes += nova_nota
+    os.save()
+
+    messages.warning(request, f"Ocorrência registada na OS {os.os_number}. O Despachante foi notificado.")
+    return redirect('motoboy_tasks')
+
+@login_required
+@require_POST
+def resolve_os_problem(request, os_id):
+    """ Tira a OS do status de Ocorrência após o despachante tomar uma decisão """
+    if request.user.type != 'DISPATCHER' and not request.user.is_superuser:
+        return JsonResponse({'status': 'error', 'message': 'Sem permissão.'}, status=403)
+
+    os = get_object_or_404(ServiceOrder, id=os_id)
+    
+    # Lê a ação escolhida pelo Despachante no Modal
+    data = json.loads(request.body)
+    action = data.get('action', 'reactivate')
+    
+    if action == 'reactivate':
+        # Volta a OS para o motoboy continuar de onde parou
+        if os.stops.filter(stop_type='COLETA', is_completed=True).exists():
+            os.status = 'COLETADO'
+        else:
+            os.status = 'ACEITO'
+        os.operational_notes += f"\n[✅ RESOLVIDO] Rota reativada por {request.user.first_name}."
+        
+    elif action == 'unassign':
+        # Tira do motoboy atual e devolve para a fila de 'Aguardando'
+        os.status = 'PENDENTE'
+        os.motoboy = None
+        os.operational_notes += f"\n[🔄 RETORNOU] Removida do motoboy e voltou para a fila por {request.user.first_name}."
+        
+        # Remove o motoboy atual apenas das paradas que ainda não foram concluídas
+        for stop in os.stops.filter(is_completed=False):
+            stop.motoboy = None
+            stop.save()
+            
+    os.save()
+    return JsonResponse({'status': 'success'})

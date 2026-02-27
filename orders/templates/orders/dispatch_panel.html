@@ -41,6 +41,14 @@
     
     .route-timeline .list-group-item { transition: all 0.2s; border-left: 4px solid transparent; }
     .route-timeline .list-group-item:hover { background-color: #f8fafc; border-left-color: #3b82f6; }
+
+    /* SLA Animations */
+    @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+    .sla-critical { border-left: 5px solid #ef4444 !important; animation: pulse-red 2s infinite; }
+    .sla-warning { border-left: 5px solid #f59e0b !important; }
+    
+    /* Ocorrências */
+    .occurrence-card { background-color: #fef2f2 !important; border: 2px solid #ef4444 !important; }
 </style>
 
 <div class="dashboard-wrapper font-sans">
@@ -92,15 +100,18 @@
                                     <h6 class="fw-bold text-dark mb-0">{{ data.profile.user.first_name }}</h6>
                                     <span class="text-muted" style="font-size: 0.7rem;">{{ data.profile.get_category_display }}</span>
                                 </div>
-                                {% if data.is_online %}
-                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25"><i class="bi bi-circle-fill" style="font-size: 0.4rem; vertical-align: middle;"></i> Livre</span>
-                                {% else %}
-                                    <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">Offline</span>
-                                {% endif %}
+                                <div class="d-flex align-items-center gap-2">
+                                    <a href="https://wa.me/55{{ data.profile.user.phone|default:''|cut:' '|cut:'-'|cut:'('|cut:')' }}?text=Olá {{ data.profile.user.first_name }}, prepara que tem rota!" target="_blank" class="btn btn-sm btn-success rounded-circle p-1 d-flex align-items-center justify-content-center" style="width: 28px; height: 28px;">
+                                        <i class="bi bi-whatsapp"></i>
+                                    </a>
+                                    
+                                    {% if data.is_online %}
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25"><i class="bi bi-circle-fill" style="font-size: 0.4rem; vertical-align: middle;"></i> Livre</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">Offline</span>
+                                    {% endif %}
+                                </div>
                             </div>
-
-                            {% if data.is_online %}
-                            {% endif %}
                         </div>
                         {% endfor %}
                     </div>
@@ -118,7 +129,8 @@
 
                     <div class="flex-grow-1 overflow-y-auto custom-scrollbar pe-2 d-flex flex-column gap-3">
                         {% for os in pending_orders %}
-                        <div class="bg-white p-3 rounded-3 border border-light shadow-sm draggable-card drop-zone-os transition-all" 
+                        <div class="bg-white p-3 rounded-3 border border-light shadow-sm draggable-card drop-zone-os transition-all sla-tracker" 
+                             data-timestamp="{{ os.created_at.timestamp }}"
                              style="border-left: 4px solid {% if os.priority == 'URGENTE' %}#ef4444{% else %}#3b82f6{% endif %} !important;"
                              draggable="true" 
                              ondragstart="drag(event, '{{ os.id }}')"
@@ -130,6 +142,8 @@
                                 <div class="d-flex align-items-center gap-2">
                                     <i class="bi bi-grip-vertical text-muted"></i>
                                     <span class="fw-bold font-monospace text-dark">{{ os.os_number }}</span>
+                                    <span class="badge sla-badge bg-light text-secondary border ms-1" style="font-size: 0.6rem;"><i class="bi bi-hourglass-split"></i> <span class="sla-text">0m</span></span>
+                                    
                                     {% if "[MESCLADA]" in os.operational_notes %}
                                         <span class="badge bg-purple text-dark border border-purple border-opacity-25" style="background-color: #e9d5ff; color: #6b21a8;"><i class="bi bi-diagram-3"></i> Mesclada</span>
                                     {% endif %}
@@ -174,17 +188,25 @@
                         {% for data in motoboy_data %}
                             {% if data.active_stops %}
                             {% with atual=data.active_stops|first %}
-                            <div class="bg-white rounded-4 border shadow-sm overflow-hidden mb-1">
+                            
+                            <div class="bg-white rounded-4 border shadow-sm overflow-hidden mb-1 {% if atual.service_order.status == 'OCORRENCIA' %}occurrence-card{% endif %}">
                                 <div class="card-body p-3">
                                     
                                     <div class="d-flex justify-content-between align-items-center mb-3">
                                         <h6 class="fw-bold mb-0 text-dark d-flex align-items-center gap-2" style="font-size: 0.95rem;">
-                                            <i class="bi bi-person-circle fs-5 text-primary"></i> {{ data.profile.user.first_name }}
+                                            <i class="bi bi-person-circle fs-5 {% if atual.service_order.status == 'OCORRENCIA' %}text-danger{% else %}text-primary{% endif %}"></i> {{ data.profile.user.first_name }}
                                         </h6>
-                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1">
-                                            Atendendo OS {{ atual.service_order.os_number }}
+                                        <span class="badge {% if atual.service_order.status == 'OCORRENCIA' %}bg-danger{% else %}bg-primary{% endif %} bg-opacity-10 text-dark border px-2 py-1">
+                                            OS {{ atual.service_order.os_number }}
                                         </span>
                                     </div>
+
+                                    {% if atual.service_order.status == 'OCORRENCIA' %}
+                                        <div class="alert alert-danger p-2 mb-2 small fw-bold d-flex flex-column flex-md-row justify-content-between align-items-center gap-2">
+                                            <span><i class="bi bi-exclamation-triangle-fill"></i> ROTA TRAVADA</span>
+                                            <button onclick="resolverBO('{{ atual.service_order.id }}')" class="btn btn-sm btn-danger fw-bold rounded-pill shadow-sm w-100 w-md-auto">Resolver</button>
+                                        </div>
+                                    {% endif %}
 
                                     <div class="p-2 rounded-3 bg-slate-50 border border-slate-200">
                                         <div class="d-flex align-items-center gap-2 mb-1">
@@ -338,12 +360,58 @@
                 }
             }
         }
-        // Fallback caso o cookie não seja lido
         if (!cookieValue) {
             const tokenInput = document.querySelector('[name=csrfmiddlewaretoken]');
             if (tokenInput) cookieValue = tokenInput.value;
         }
         return cookieValue;
+    }
+
+    // ====================================================
+    // LÓGICA DE SLA (TEMPO NA FILA)
+    // ====================================================
+    function updateSLAs() {
+        const now = Math.floor(Date.now() / 1000);
+        document.querySelectorAll('.sla-tracker').forEach(card => {
+            const timestamp = parseInt(card.getAttribute('data-timestamp'));
+            if(!timestamp) return;
+            
+            const diffMinutes = Math.floor((now - timestamp) / 60);
+            const badge = card.querySelector('.sla-badge');
+            const text = card.querySelector('.sla-text');
+            
+            if(text) text.innerText = diffMinutes + 'm';
+            
+            if (diffMinutes >= 60) {
+                card.classList.add('sla-critical');
+                if(badge) {
+                    badge.classList.replace('bg-light', 'bg-danger');
+                    badge.classList.replace('text-secondary', 'text-white');
+                }
+                if(text) text.innerText = diffMinutes + 'm 🔥';
+            } else if (diffMinutes >= 30) {
+                card.classList.add('sla-warning');
+                if(badge) {
+                    badge.classList.replace('bg-light', 'bg-warning');
+                    badge.classList.replace('text-secondary', 'text-dark');
+                }
+            }
+        });
+    }
+    // Roda a verificação de SLA a cada 1 minuto
+    setInterval(updateSLAs, 60000);
+    setTimeout(updateSLAs, 1000);
+
+    // ====================================================
+    // RESOLVER PROBLEMA DO MOTOBOY
+    // ====================================================
+    function resolverBO(osId) {
+        if(confirm("🛠 RESOLVER OCORRÊNCIA\n\nTem a certeza que o problema foi solucionado e deseja reativar a rota para o motoboy?")) {
+            fetch(`/painel-despacho/resolver/${osId}/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': getCSRFToken()}
+            }).then(r => window.location.reload());
+        }
     }
 
     // ====================================================
@@ -382,10 +450,8 @@
     function dropAssign(ev, motoboyId) {
         ev.preventDefault();
         ev.currentTarget.classList.remove('drag-over');
-        
         var osId = ev.dataTransfer.getData("osId");
         if (!osId) return;
-
         assignMotoboySecurely(osId, motoboyId);
     }
 
@@ -411,14 +477,10 @@
         modal.show();
     }
 
-    // ====================================================
-    // ATRIBUIÇÃO PELO BOTÃO DENTRO DO MODAL
-    // ====================================================
     function submitModalAssign() {
         const motoboyId = document.getElementById('modalCourierSelect').value;
         if (!motoboyId) { alert("⚠️ Selecione um técnico na lista para atribuir a OS."); return; }
         if (!currentModalOsId) return;
-
         assignMotoboySecurely(currentModalOsId, motoboyId);
     }
 
@@ -452,7 +514,7 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json', 
-                    'X-CSRFToken': getCSRFToken() // CHAMANDO O TOKEN SEGURO
+                    'X-CSRFToken': getCSRFToken() 
                 },
                 body: JSON.stringify({ source_os: sourceOsId, target_os: targetOsId })
             })
@@ -506,9 +568,7 @@
                 `;
             });
 
-            if (modalSortableInstance) {
-                modalSortableInstance.destroy();
-            }
+            if (modalSortableInstance) modalSortableInstance.destroy();
 
             modalSortableInstance = new Sortable(list, {
                 animation: 150,
@@ -525,7 +585,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json', 
-                            'X-CSRFToken': getCSRFToken() // CHAMANDO O TOKEN SEGURO
+                            'X-CSRFToken': getCSRFToken()
                         },
                         body: JSON.stringify({ stops: stopIds })
                     }).then(res => {
@@ -572,6 +632,9 @@
                 document.getElementById('col-frota').innerHTML = doc.getElementById('col-frota').innerHTML;
                 document.getElementById('col-aguardando').innerHTML = doc.getElementById('col-aguardando').innerHTML;
                 document.getElementById('col-atendimento').innerHTML = doc.getElementById('col-atendimento').innerHTML;
+                
+                // Reaplica as cores do SLA após recarregar a tela invisivelmente
+                updateSLAs();
             })
             .catch(error => console.log('Silencioso: Falha na autossincronização', error));
     }

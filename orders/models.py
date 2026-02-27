@@ -11,6 +11,7 @@ class ServiceOrder(models.Model):
         COLLECTED = 'COLETADO', 'Coletado / Em Trânsito'
         DELIVERED = 'ENTREGUE', 'Entregue'
         CANCELED = 'CANCELADO', 'Cancelado'
+        PROBLEM = 'OCORRENCIA', 'Ocorrência / Problema'
 
     class Priority(models.TextChoices):
         NORMAL = 'NORMAL', 'Normal'
